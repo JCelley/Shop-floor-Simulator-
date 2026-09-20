@@ -7,6 +7,8 @@ const hasBrowser = fs.existsSync(path.join(root, 'node_modules', 'playwright'));
 const steps = [
   ['build', 'node', ['scripts/build.js']],
   ['engine (parser + stock removal)', 'node', ['tests/engine.test.js']],
+  ['tilted work planes (G68.2/G53.1/G69, real 3+2 job)', 'node', ['tests/tilt.test.js']],
+  ['undercut tools (T-slot/dovetail/lollipop, real 3+2 job)', 'node', ['tests/undercut.test.js']],
   ...(py ? [['fusion export script (math)', py, ['tests/script.test.py']], ['fusion add-in (fake Fusion, real job data)', py, ['tests/addin.test.py']]] : []),
   ['page UI (jsdom, stubbed WebGL)', 'node', ['tests/ui.test.js']],
   ['real cascading-post JSON + real NC (jsdom)', 'node', ['tests/postJson.test.js']],

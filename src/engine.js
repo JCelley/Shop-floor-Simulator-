@@ -7,6 +7,10 @@ const NC = (() => {
   'use strict';
   const RAPID_MMPM = 24000;
   const CC_NOTE = 'Cutter compensation (G41/G42) is treated as wear compensation: the programmed path is the tool centre, and offset values are not applied.';          // assumed rapid rate for time estimates
+  // Undercut-shaped tools (wider cutting profile than the neck behind it) cannot be represented by a
+  // one-height-per-column height field - see docs/NOTES.md. Detected by name only; stock removal for
+  // these is skipped (toolpath shown, nothing cut) rather than simulated wrong.
+  const UNDERCUT_RE = /T[- ]?SLOT|DOVETAIL|WOODRUFF|KEYSEAT|LOLLIPOP|UNDERCUT|BACK[- ]?CHAMFER|BACK[- ]?COUNTERBORE|BACK[- ]?SPOT/i;
 
   /* ---------- tool model ---------- */
   function typeFromText(s) {
@@ -20,6 +24,7 @@ const NC = (() => {
 
   // Fill in anything missing so every tool is drawable and simulatable.
   function completeTool(t) {
+    t.undercut = !!t.undercut;
     t.D = t.D > 0 ? t.D : 6;
     if (!t.type) t.type = 'flat';
     if (t.type === 'flat' && t.rc > 0) t.type = t.rc >= t.D / 2 - 1e-6 ? 'ball' : 'bull';
@@ -42,14 +47,14 @@ const NC = (() => {
   // Simulation tool: the profile function prof(d) is the height of the tool
   // surface above the tip at horizontal distance d from the axis.
   function simTool(t) {
-    const R = (t.D || 6) / 2;
-    if (t.type === 'ball') return { R, kind: 1, rc: R, r0: 0, slope: 0 };
-    if (t.type === 'bull') { const rc = Math.min(t.rc || 0.5, R); return { R, kind: 2, rc, r0: R - rc, slope: 0 }; }
+    const R = (t.D || 6) / 2, undercut = !!t.undercut;
+    if (t.type === 'ball') return { R, kind: 1, rc: R, r0: 0, slope: 0, undercut };
+    if (t.type === 'bull') { const rc = Math.min(t.rc || 0.5, R); return { R, kind: 2, rc, r0: R - rc, slope: 0, undercut }; }
     if (t.type === 'drill' || t.type === 'chamfer') {
       const half = ((t.tip || (t.type === 'drill' ? 118 : 90)) / 2) * Math.PI / 180;
-      return { R, kind: 3, rc: 0, r0: Math.min(Math.max((t.tipD || 0) / 2, 0), R * 0.95), slope: 1 / Math.tan(half) };
+      return { R, kind: 3, rc: 0, r0: Math.min(Math.max((t.tipD || 0) / 2, 0), R * 0.95), slope: 1 / Math.tan(half), undercut };
     }
-    return { R, kind: 0, rc: 0, r0: R, slope: 0 };
+    return { R, kind: 0, rc: 0, r0: R, slope: 0, undercut };
   }
 
   function prof(T, d) {
@@ -82,6 +87,7 @@ const NC = (() => {
       const k = /inch/i.test(e.unit || '') ? 25.4 : 1;
       if (g.DC > 0) t.D = g.DC * k;
       t.type = typeFromText(e.type);
+      if (UNDERCUT_RE.test(String(e.type || '') + ' ' + String(e.description || ''))) t.undercut = true;
       t.rc = t.type === 'bull' && g.RE > 0 ? g.RE * k : 0;
       t.tip = t.type === 'drill' ? (g.SIG > 0 ? g.SIG : 118) : (t.type === 'chamfer' ? (g.TA > 0 ? g.TA * 2 : 90) : undefined);
       t.tipD = t.type === 'chamfer' && g['tip-diameter'] > 0 ? g['tip-diameter'] * k : 0;
@@ -122,6 +128,7 @@ const NC = (() => {
   function guessFromName(t, name, inch) {
     const s = String(name).toUpperCase(), sc = inch ? 25.4 : 1;
     t.type = typeFromText(s);
+    if (UNDERCUT_RE.test(s)) t.undercut = true;
     const lead = /^\s*(?:(\d+)\/(\d+)|(\d*\.\d+)|(\d+))\s*(MM)?/.exec(s);
     if (lead) {
       const v = lead[1] ? +lead[1] / +lead[2] : (lead[3] ? +lead[3] : +lead[4]);
@@ -178,6 +185,7 @@ const NC = (() => {
     let n = 0; const k = csv.unit === 'in' ? 25.4 : 1;
     for (const c of csv.tools) {
       const t = tools.find(x => x.no === c.no); if (!t || t.fromLib) continue;
+      if (UNDERCUT_RE.test(c.name || '')) t.undercut = true;
       if (c.cutD > 0) t.D = c.cutD;
       if (c.ooh > 0) t.stick = c.ooh;
       if (c.holder) t.holderName = c.holder;
@@ -211,13 +219,50 @@ const NC = (() => {
     throw new Error('No JSON found inside the .tools file');
   }
 
+  /* ---------- tilted work planes (G68.2 / G53.1 / G69) ----------
+     3+2 programs tilt to an angle, then cut flat in that plane using X/Y/Z already
+     expressed in the tilted plane's own local frame (Tool Center Point Control).
+     G68.2 X_ Y_ Z_ I_ J_ K_ defines the plane (I=roll about X, J=pitch about Y,
+     K=yaw about Z, degrees, default order I-then-J-then-K per Fanuc's Q123 default -
+     unverified against this shop's actual machine kinematics beyond the matrix being
+     a proper rotation; confirm visually once oriented rendering exists).
+     G53.1 activates it (motion after this point is local to the tilted plane).
+     G69 cancels back to the base frame. */
+  function deg(a) { return a * Math.PI / 180; }
+  function matMul3(A, B) {
+    const M = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) for (let k = 0; k < 3; k++) M[r][c] += A[r][k] * B[k][c];
+    return M;
+  }
+  function planeMatrix(I, J, K) {
+    const ci = Math.cos(deg(I)), si = Math.sin(deg(I)), cj = Math.cos(deg(J)), sj = Math.sin(deg(J)), ck = Math.cos(deg(K)), sk = Math.sin(deg(K));
+    const Rx = [[1, 0, 0], [0, ci, -si], [0, si, ci]];
+    const Ry = [[cj, 0, sj], [0, 1, 0], [-sj, 0, cj]];
+    const Rz = [[ck, -sk, 0], [sk, ck, 0], [0, 0, 1]];
+    return matMul3(matMul3(Rz, Ry), Rx);
+  }
+
   /* ---------- G-code parser ---------- */
   function parseProgram(text, opts) {
     opts = opts || {};
     const lines = String(text).replace(/\r/g, '').split('\n');
-    const X = [], Y = [], Z = [], K = [], F = [], S = [], TL = [], CO = [], OP = [], LN = [];
+    const X = [], Y = [], Z = [], K = [], F = [], S = [], TL = [], CO = [], OP = [], LN = [], PL = [];
     const ops = [], tools = new Map(), warnings = [], notes = [], warned = new Set();
     const warn = m => { if (!warned.has(m)) { warned.add(m); warnings.push(m); } };
+    // planes[0] is always the base (untilted) frame. curPlaneId is which one new moves belong to.
+    const planes = [{ id: 0, origin: [0, 0, 0], ijk: [0, 0, 0], matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] }];
+    let pendingPlane = null, curPlaneId = 0, sawRotary = false;
+    const registerPlane = p => {
+      const key = v => Math.round(v * 1e4) / 1e4;
+      for (const pl of planes) {
+        if (pl === planes[0]) continue;
+        if (key(pl.origin[0]) === key(p.ox) && key(pl.origin[1]) === key(p.oy) && key(pl.origin[2]) === key(p.oz) &&
+            key(pl.ijk[0]) === key(p.i) && key(pl.ijk[1]) === key(p.j) && key(pl.ijk[2]) === key(p.k)) return pl.id;
+      }
+      const id = planes.length;
+      planes.push({ id, origin: [p.ox, p.oy, p.oz], ijk: [p.i, p.j, p.k], matrix: planeMatrix(p.i, p.j, p.k) });
+      return id;
+    };
 
     // Units are often declared after the tool comments, so look ahead.
     const stripped = lines.map(l => l.replace(/\([^)]*\)/g, ' ').replace(/;.*/, '')).join('\n');
@@ -250,7 +295,7 @@ const NC = (() => {
         pendingLabel = null; forceNewOp = false;
       }
       X.push(nx); Y.push(ny); Z.push(nz); K.push(kind); F.push(feed);
-      S.push(spinOn ? spindle : 0); TL.push(tool); CO.push(coolant); OP.push(ops.length - 1); LN.push(ln);
+      S.push(spinOn ? spindle : 0); TL.push(tool); CO.push(coolant); OP.push(ops.length - 1); LN.push(ln); PL.push(curPlaneId);
       x = nx; y = ny; z = nz;
     };
 
@@ -321,7 +366,7 @@ const NC = (() => {
         if (c === 'G') g.push(v);
         else if (c === 'M') mc.push(Math.round(v));
         else if ('XYZIJKRQPFSTHDL'.includes(c)) a[c] = v;
-        else if ('ABC'.includes(c)) { if (Math.abs(v) > 1e-9) warn('Rotary axis moves (A/B/C) are ignored'); }
+        else if ('ABC'.includes(c)) { if (Math.abs(v) > 1e-9) sawRotary = true; }
       }
       const k = () => (inch ? 25.4 : 1);
       let newMotion = null, skip = false, toolChange = false;
@@ -340,6 +385,11 @@ const NC = (() => {
           case 73: case 81: case 82: case 83: case 84: case 85: case 86: case 87: case 88: case 89: newMotion = v; break;
           case 80: newMotion = -1; break;
           case 4: case 10: case 28: case 30: case 53: case 92: skip = true; break;
+          // Tilted work plane (3+2): G68.2 defines it, G53.1 activates it (moves after
+          // this point are local to the tilted plane), G69 cancels back to the base frame.
+          case 68.2: pendingPlane = { ox: ('X' in a ? a.X * k() : 0), oy: ('Y' in a ? a.Y * k() : 0), oz: ('Z' in a ? a.Z * k() : 0), i: a.I || 0, j: a.J || 0, k: a.K || 0 }; skip = true; break;
+          case 53.1: if (pendingPlane) { curPlaneId = registerPlane(pendingPlane); pendingPlane = null; } skip = true; break;
+          case 69: curPlaneId = 0; skip = true; break;
           case 100: toolChange = true; break;
           case 41: case 42: if (!notes.includes(CC_NOTE)) notes.push(CC_NOTE); break;
           default: break;
@@ -400,12 +450,23 @@ const NC = (() => {
       if (words.length) block(words, li + 1);
     }
 
+    // Tilted-plane summary: a specific note when G68.2 planes were found (still not
+    // simulated for stock removal - see NOTES.md), otherwise fall back to the old
+    // generic warning for any other unaccounted rotary motion.
+    if (planes.length > 1) {
+      const tilted = PL.filter(p => p !== 0).length;
+      notes.push(`Uses ${planes.length - 1} tilted work plane(s) (G68.2/G53.1) across ${tilted} move(s). Stock removal for those is not yet simulated correctly - shown using the base orientation for now.`);
+    } else if (sawRotary) {
+      warn('Rotary axis moves (A/B/C) are ignored');
+    }
+
     const n = X.length;
     const P = {
       n, lines, ops, warnings, notes, init: init || { x: 0, y: 0, z: 0 },
       X: Float32Array.from(X), Y: Float32Array.from(Y), Z: Float32Array.from(Z),
       K: Uint8Array.from(K), F: Float32Array.from(F), S: Float32Array.from(S),
       TL: Uint16Array.from(TL), CO: Uint8Array.from(CO), OP: Uint16Array.from(OP), LN: Uint32Array.from(LN),
+      PL: Uint16Array.from(PL), planes,
       inch,
     };
     // tools used by moves must exist
@@ -540,7 +601,7 @@ const NC = (() => {
     const sx = i > 0 ? P.X[i - 1] : P.init.x, sy = i > 0 ? P.Y[i - 1] : P.init.y, sz = i > 0 ? P.Z[i - 1] : P.init.z;
     const ex = P.X[i], ey = P.Y[i], ez = P.Z[i];
     const T = simTools.get(P.TL[i]);
-    if (!T) return;
+    if (!T || T.undercut) return;   // undercut tools (T-slot/dovetail/lollipop) shown as toolpath only
     sim.cut(sx + (ex - sx) * f0, sy + (ey - sy) * f0, sz + (ez - sz) * f0,
             sx + (ex - sx) * f1, sy + (ey - sy) * f1, sz + (ez - sz) * f1, T, P.OP[i] + 1);
   }

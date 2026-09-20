@@ -42,8 +42,25 @@ Drill tip angle is the **included** angle (118, 140). Fusion's chamfer `TA` is t
 ### Parser (`parseProgram(text, {units})`)
 Handles G0/G1/G2/G3 in **G17/G18/G19**, G20/G21, G90/G91, G98/G99, canned cycles G73/G81-G89 (one plunge), G28/G30/G53/G92/G4/G10
 skipped, **G100 tool change**, M3/M4/M5, M7/M8/M9, M88/M89, M494/M495, R-word arcs, helical arcs, block delete. Arcs are tessellated
-to 0.004 mm chord error. Output is struct-of-arrays: `X,Y,Z` end points, `K` (0 rapid, 1 feed), `F,S,TL,CO,OP,LN`, plus `ops`, `tools`,
-`cumT` (cumulative seconds; rapids at 24000 mm/min), `bounds` (of feed moves), `notes`, `warnings`.
+to 0.004 mm chord error. Output is struct-of-arrays: `X,Y,Z` end points, `K` (0 rapid, 1 feed), `F,S,TL,CO,OP,LN`, plus `PL` (tilted-plane
+index per move, see below), `ops`, `tools`, `planes`, `cumT` (cumulative seconds; rapids at 24000 mm/min), `bounds` (of feed moves), `notes`, `warnings`.
+
+**3+2 / tilted work planes (Phase 1 of 3, in progress — parsing only, stock removal not yet fixed).** APW's 3+2 programs use
+`G68.2 X_ Y_ Z_ I_ J_ K_` to define a tilted plane (I=roll about X, J=pitch about Y, K=yaw about Z, degrees), `G53.1` right
+after it to activate Tool Center Point Control (motion from here on is written in the tilted plane's own local coordinates,
+not machine space), and `G69` to cancel back to the base frame. **Verified against a real job (O1224, 3+2 outlet-fitting-style
+part)**: 7 distinct tilted orientations, always `X0 Y0 Z0` origin, always immediately `G68.2` then `G53.1`, never nested.
+The parser now: (a) treats `G68.2`/`G53.1`/`G69` as non-motion (they used to leak their `X0 Y0 Z0` into a phantom move under
+the still-modal G0/G1 - a real bug, now fixed for any file using this pattern), (b) de-duplicates repeated identical
+orientations into one `planes[]` entry, (c) tags every move with `PL[i]` = which plane it belongs to (0 = base), (d) computes
+each plane's rotation matrix as `Rz(K)·Ry(J)·Rx(I)` (Fanuc's default Q123 order - matches documentation, cross-checked as a
+proper rotation (orthonormal, det +1) and against one easy case (pure yaw stays "up"), but **not yet confirmed against this
+machine's actual A/C kinematics** - do that visually once oriented rendering exists (Phase 3)), (e) replaces the old generic
+"rotary axis moves ignored" warning with a specific tilted-plane note when any G68.2 is found. **Stock removal still applies
+every move's local X/Y/Z directly to the single base-frame height field regardless of `PL`** - i.e. loading a 3+2 program
+today still visually cuts tilted-plane operations in the wrong place, just without the extra phantom-move glitch. Phase 2
+(one HeightSim per distinct plane) and Phase 3 (combined oriented rendering) are not built yet. Test: `tests/tilt.test.js`,
+fixture `fixtures/O1224.NC`.
 
 Unit rule: `opts.units` if given, else the first G20/G21, else a heuristic (`guessInch`: max |XY| under 40 and median feed under 250 means
 inches). A note is shown when the heuristic is used.
@@ -175,3 +192,10 @@ so the in-page `.tools` unzip is covered by an engine (Node) test only.
 - **Chain setups:** simulate OP50, then use its result as the stock for the next setup (only feasible without a flip, or with a full solid model).
 - **Cycle time:** reuse the post's FEED_RATIO and tool-change constants.
 - **Part STL** for true deviation colouring (needs the WCS transform, which the export code already solves).
+- **Multi-interval dexel (true undercut support):** replace the one-height-per-column `HeightSim` with a small stack of
+  solid/empty intervals per column, so a column can be solid-empty-solid (a T-slot, dovetail, or lollipop cut). This is
+  the alternative the project passed on at the start (section 1: "no undercuts or overhangs" was the accepted cost of
+  the height-field choice) - John wants to try it eventually to see how bad it really is, but explicitly **as an
+  experiment in a separate build/branch, not on this codebase**, since it touches the cutting math and mesh generation
+  at the core of the engine and a failed attempt shouldn't risk the working build. Current stopgap: undercut tools are
+  detected by name and skipped (toolpath only) - see Known limits in CLAUDE.md.

@@ -86,8 +86,13 @@ npm test           # all suites; needs Node 18+ and Python 3 for the Fusion-side
 
 ## Known limits (do not "fix" silently, they are design boundaries)
 
-- No undercut tools (T-slot, dovetail), no overhang stock, no 4th/5th-axis motion (A/C words ignored; the sample has only
-  A0 C0). "Stock from previous setup" cannot be chained across a flip (only the bounding box is used).
+- No undercut tools (T-slot, dovetail, lollipop, woodruff...): detected by name (`UNDERCUT_RE` in engine.js) and flagged
+  in the warnings; stock removal is skipped for that tool (toolpath still plays) rather than simulated wrong. A real
+  multi-interval-dexel fix is a deliberately deferred, separate project — see NOTES.md.
+- No overhang stock, no full continuous 5-axis motion. 3+2 (tilted work plane via G68.2/G53.1/G69) is parsed and each
+  move is tagged with its plane (see NOTES.md) but stock removal for tilted planes is **not yet simulated correctly**
+  — in progress, see Roadmap. Bare A/B/C rotary moves with no G68.2 are still ignored.
+  "Stock from previous setup" cannot be chained across a flip (only the bounding box is used).
 - Cutter compensation G41/G42 is **not** applied: John confirmed his contours are tool-centre paths using wear comp.
 - Peck cycles (G73/G83) are simulated as one plunge. Rapids never cut. No holder/fixture collision.
 - Cycle-time estimate is rough (8.2 min vs the setup sheet's 11.4 for O1228). The post uses FEED_RATIO 0.85 and a 10 s tool
