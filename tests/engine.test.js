@@ -1,4 +1,5 @@
 const NC = require('../src/engine.js');
+const fs = require('fs'), path = require('path');
 let fails = 0;
 const ok = (c, m) => { if (!c) { fails++; console.log('FAIL', m); } else console.log('ok  ', m); };
 const near = (a, b, t, m) => ok(Math.abs(a - b) <= t, `${m}: got ${a.toFixed(4)} want ${b} ±${t}`);
@@ -104,6 +105,40 @@ for (const target of [240, 360, 520]) {
   near(td3.D, 0.375 * 25.4, 1e-6, 'fraction-led names are unaffected by the numbered-drill fix');
   const td4 = { no: 2 }; NC.guessFromName(td4, '.2344 15/64 DRILL 5XD 140DEG TSC', true);
   near(td4.D, 0.2344 * 25.4, 1e-6, 'decimal-led names are unaffected too');
+}
+
+// ---- cutter comp (G41/G42) per-operation tracking
+{
+  const cp = NC.parseProgram('G21 G90 G17\nT1 M6\nG0 X0 Y0\nG1 G41 X10 Y0 D5 F500\nG1 X10 Y10\nG40 G1 X0 Y10\n');
+  ok(cp.ops[0].comp === 1 && cp.ops[0].compD === 5, `G41 on the same block as the move is captured, with its D register: comp=${cp.ops[0].comp} D=${cp.ops[0].compD}`);
+  const cp2 = NC.parseProgram('G21 G90 G17\nT1 M6\nG0 X0 Y0\nG1 G42 X10 Y0 D7 F500\n');
+  ok(cp2.ops[0].comp === 2 && cp2.ops[0].compD === 7, `G42 (right) is distinguished from G41: comp=${cp2.ops[0].comp} D=${cp2.ops[0].compD}`);
+  const cp3 = NC.parseProgram('G21 G90 G17\nT1 M6\nG100 T57 X0 Y0 G43 Z5 H57 D57 S3000 M03\nG1 X10 Y0 F500\n');
+  ok(cp3.ops[0].comp === 0, "a tool-change block's own D word (H57 D57) is not mistaken for cutter comp");
+  ok(P.ops[0].comp === 0, 'the baseline demo program has no cutter comp (unaffected by this change)');
+}
+// real job: verified against O1228.NC - 3 finishing-contour operations use G41 D58 (T58)
+{
+  const real = NC.parseProgram(fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'O1228.NC'), 'latin1'));
+  const withComp = real.ops.filter(o => o.comp);
+  ok(withComp.length === 3, `O1228: 3 real operations use cutter comp (got ${withComp.length})`);
+  ok(withComp.every(o => o.comp === 1 && o.compD === 58 && o.tool === 58), 'all 3 are G41 D58 on T58, matching the D-register-equals-tool-number convention');
+}
+
+// ---- Dim# extraction from the setup-sheet CSV, column 8 "Diameter control dim" -----
+// No real fixture happens to contain an operation-comment DIM note, so this uses text shaped
+// exactly like the real post's output (getDimNote()/csvRow() in CSV_Cascade_Post_v2_6_7.cps):
+// "D<n> = DIM <note>" when both exist, just "D<n>" or just the note when only one does.
+{
+  const header = 'Seq#,Sequence Description,Tool #,G-Code Tool #,OOH,Holder,RTA #,Length control Dim,Diameter control dim,Cut Diameter,Gage Length,Tip (CR or Angle),T-description,LC\n';
+  const csvText = header +
+    '10,OP50 | Finish Bore,58,T58,1.2,HLDR,,0.500,D58 = DIM 1.250,0.375,0.42,,Boring bar,\n' +
+    '15,OP50 | Rough Mill,44,T44,1.0,HLDR,,0.400,D44,0.500,0.40,,End mill,\n' +
+    '20,OP50 | Face,46,T46,0.9,HLDR,,0.300,,0.750,0.38,,Face mill,\n';
+  const csv = NC.parseSetupCsv(csvText);
+  ok(csv.ops[0].dim === 'DIM 1.250', `"D58 = DIM 1.250" yields just the DIM part: "${csv.ops[0].dim}"`);
+  ok(csv.ops[1].dim === '', `a D-value with no DIM note yields nothing: "${csv.ops[1].dim}"`);
+  ok(csv.ops[2].dim === '', `no D-value and no note yields nothing: "${csv.ops[2].dim}"`);
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');

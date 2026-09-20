@@ -149,6 +149,15 @@ button, select, input { font: inherit; color: inherit; }
 #ops button:hover { background: var(--panel2); }
 #ops button[aria-current="true"] { background: var(--panel2); border-left-color: var(--accent); font-weight: 700; }
 #ops .t { font: 600 14px var(--mono); color: var(--muted); }
+#ops .opline { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+#ops .oplabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ops .opbadges { display: flex; gap: 6px; flex-wrap: wrap; }
+#ops .opbadge { font: 700 11px/1.5 var(--mono); padding: 0 6px; border-radius: 3px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); }
+#ops .opbadge.cc { color: #fff; background: var(--blue); border-color: transparent; }
+#ops .opbadge.dim { color: #fff; background: var(--green); border-color: transparent; }
+#ops li.op-dim button { background: color-mix(in srgb, var(--green) 16%, transparent); }
+#ops li.op-dim button:hover { background: color-mix(in srgb, var(--green) 26%, transparent); }
+#ops li.op-dim button[aria-current="true"] { background: color-mix(in srgb, var(--green) 30%, transparent); }
 summary { cursor: pointer; padding: 12px 14px; font-weight: 700; font-size: 16px; min-height: 44px; }
 .pad { padding: 0 14px 14px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
@@ -174,6 +183,8 @@ label.f select { font-family: var(--font); }
 .time { font: 600 18px var(--mono); min-width: 9.5ch; text-align: right; }
 .speed { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .speed .sel { color: var(--ink); }
+.stepToggle { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+.stepToggle input { accent-color: var(--accent); cursor: pointer; }
 
 #toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 6px; max-width: min(560px, 92vw); z-index: 20; font-weight: 600; box-shadow: var(--shadow); }
 .drop { outline: 3px dashed var(--accent); outline-offset: -8px; }
@@ -352,6 +363,9 @@ label.f select { font-family: var(--font); }
       <input id="scrub" type="range" min="0" max="10000" value="0" aria-label="Program timeline">
     </div>
     <div class="speed">
+      <label class="stepToggle" title="Pause at the start of each operation, and the moment cutter comp (G41/G42) turns on">
+        <input id="stepMode" type="checkbox"> Step
+      </label>
       <label for="speedSel">Speed</label>
       <select id="speedSel" class="sel">
         <option value="1">1x</option><option value="3">3x</option><option value="10">10x</option>
@@ -552,7 +566,10 @@ const NC = (() => {
       }
       const g = /T\s*(\d+)/i.exec(r[3] || ''); if (!g) continue;
       const no = +g[1], k = out.unit === 'in' ? 25.4 : 1;
-      out.ops.push({ label: String(desc).replace(/^\s*OP\d+\s*\|\s*/i, '').trim(), tool: no });
+      // Column 8 ("Diameter control dim") holds "D<n> = DIM ..." when the operation-comment
+      // note started with DIM (see the post's getDimNote()) - pull out just the DIM... part.
+      const dimM = /DIM.*/i.exec(r[8] || '');
+      out.ops.push({ label: String(desc).replace(/^\s*OP\d+\s*\|\s*/i, '').trim(), tool: no, dim: dimM ? dimM[0].trim() : '' });
       if (!out.tools.find(t => t.no === no)) out.tools.push({ no, ooh: parseFloat(r[4]) * k, holder: (r[5] || '').trim(), cutD: parseFloat(r[9]) * k, tipRaw: (r[11] || '').trim(), name: (r[12] || '').trim() });
     }
     return out;
@@ -625,7 +642,7 @@ const NC = (() => {
   function parseProgram(text, opts) {
     opts = opts || {};
     const lines = String(text).replace(/\r/g, '').split('\n');
-    const X = [], Y = [], Z = [], K = [], F = [], S = [], TL = [], CO = [], OP = [], LN = [], PL = [];
+    const X = [], Y = [], Z = [], K = [], F = [], S = [], TL = [], CO = [], OP = [], LN = [], PL = [], CC = [], CD = [];
     const ops = [], tools = new Map(), warnings = [], notes = [], warned = new Set();
     const warn = m => { if (!warned.has(m)) { warned.add(m); warnings.push(m); } };
     // planes[0] is always the base (untilted) frame. curPlaneId is which one new moves belong to.
@@ -659,6 +676,7 @@ const NC = (() => {
     let feed = 0, spindle = 0, spinOn = false, coolant = 0, tool = 0, pendingTool = 0;
     let cycleR = 0, cycleZ = 0, cycleInit = 0;
     let pendingLabel = null, forceNewOp = true, init = null;
+    let comp = 0, compD = 0; // 0 off, 1 = G41 (left), 2 = G42 (right); compD = the D register named on that same block
 
     const getTool = no => {
       let t = tools.get(no);
@@ -670,11 +688,12 @@ const NC = (() => {
       if (!init) init = { x: nx, y: ny, z: nz };
       if (forceNewOp || pendingLabel !== null || !ops.length) {
         const t = getTool(tool);
-        ops.push({ label: pendingLabel || t.name || ('T' + tool), tool, move: X.length, line: ln });
+        ops.push({ label: pendingLabel || t.name || ('T' + tool), tool, move: X.length, line: ln, comp: 0, compD: 0, dim: '' });
         pendingLabel = null; forceNewOp = false;
       }
       X.push(nx); Y.push(ny); Z.push(nz); K.push(kind); F.push(feed);
       S.push(spinOn ? spindle : 0); TL.push(tool); CO.push(coolant); OP.push(ops.length - 1); LN.push(ln); PL.push(curPlaneId);
+      CC.push(comp); CD.push(compD);
       x = nx; y = ny; z = nz;
     };
 
@@ -770,10 +789,17 @@ const NC = (() => {
           case 53.1: if (pendingPlane) { curPlaneId = registerPlane(pendingPlane); pendingPlane = null; } skip = true; break;
           case 69: curPlaneId = 0; skip = true; break;
           case 100: toolChange = true; break;
-          case 41: case 42: if (!notes.includes(CC_NOTE)) notes.push(CC_NOTE); break;
+          case 40: comp = 0; compD = 0; break;
+          case 41: comp = 1; if (!notes.includes(CC_NOTE)) notes.push(CC_NOTE); break;
+          case 42: comp = 2; if (!notes.includes(CC_NOTE)) notes.push(CC_NOTE); break;
           default: break;
         }
       }
+      // The D word that activates comp is always on the same block as G41/G42 in this shop's
+      // programs (verified against O1228.NC and O1224.NC); tying the capture to that specific
+      // transition, not "whenever comp happens to be on", avoids picking up an unrelated D word
+      // from a tool-change block (G100 also carries its own D, the diameter offset register).
+      if ((g.includes(41) || g.includes(42)) && 'D' in a) compD = a.D;
       if ('F' in a) feed = a.F * k();
       if ('S' in a) spindle = a.S;
       if ('T' in a) pendingTool = Math.round(a.T);
@@ -845,7 +871,7 @@ const NC = (() => {
       X: Float32Array.from(X), Y: Float32Array.from(Y), Z: Float32Array.from(Z),
       K: Uint8Array.from(K), F: Float32Array.from(F), S: Float32Array.from(S),
       TL: Uint16Array.from(TL), CO: Uint8Array.from(CO), OP: Uint16Array.from(OP), LN: Uint32Array.from(LN),
-      PL: Uint16Array.from(PL), planes,
+      PL: Uint16Array.from(PL), planes, CC: Uint8Array.from(CC), CD: Uint16Array.from(CD),
       inch,
     };
     // tools used by moves must exist
@@ -881,6 +907,10 @@ const NC = (() => {
         bb0.zmin = Math.min(bb0.zmin, P.Z[i]); bb0.zmax = Math.max(bb0.zmax, P.Z[i]);
       }
       px = P.X[i]; py = P.Y[i]; pz = P.Z[i];
+      // Cutter comp per operation, for the Operations list: first activation wins if an op
+      // somehow toggles between G41/G42 more than once (rare, but don't overwrite with the
+      // second one - the operator wants to know it's active and which D register, not a history).
+      if (P.CC[i] && !P.ops[P.OP[i]].comp) { const o = P.ops[P.OP[i]]; o.comp = P.CC[i]; o.compD = P.CD[i]; }
     }
     P.total = tt;
     // Prefer base-plane-only bounds; fall back to every move only if the base plane somehow has none.
@@ -1158,7 +1188,7 @@ const S = {
   prog: null, name: '', tools: [], simTools: new Map(), sim: null, sims: new Map(), planes: new Map(), snaps: [], finalH: null, finalOp: null,
   tau: 0, cur: { i: 0, f: 0 }, playing: false, speed: 30, pendingSeek: null, mode: 'progress', res: 360,
   token: 0, ready: false, curOp: -1, limited: false, stats: {}, needsRender: true, stock: null,
-  path: 'op', rapids: false, holder: true, ghost: true, hudTool: -1, hudLine: -1, toolsDirty: false, setup: null, fixtures: true,
+  path: 'op', rapids: false, holder: true, ghost: true, hudTool: -1, hudLine: -1, toolsDirty: false, setup: null, fixtures: true, stepMode: false,
 };
 
 /* ================= viewer ================= */
@@ -1632,7 +1662,7 @@ async function loadText(text, name, opts = {}) {
     const opsList = opts.ops || (csv && csv.ops) || null, extraWarn = [];
     if (opsList) {
       const same = opsList.length === P.ops.length && opsList.every((o, i) => o.tool === P.ops[i].tool);
-      if (same) P.ops.forEach((o, i) => { if (opsList[i].label) o.label = opsList[i].label; });
+      if (same) P.ops.forEach((o, i) => { if (opsList[i].label) o.label = opsList[i].label; if (opsList[i].dim) o.dim = opsList[i].dim; });
       else if (opts.ops) extraWarn.push(`The job file lists ${opsList.length} operations but the program has ${P.ops.length}, so operation names come from the program's own comments. The file may be out of date.`);
     }
     S.ready = false; S.playing = false; updatePlay(); S.curOp = -1; S.cur = { i: 0, f: 0 }; S.tau = 0;
@@ -1798,7 +1828,17 @@ function advance(target, budget) {
   while (i < n) {
     const s0 = i > 0 ? cum[i - 1] : 0, e0 = cum[i], dur = e0 - s0;
     if (target >= e0 || dur <= 1e-12) {
-      NC.cutMoveMulti(S.sims, P, S.simTools, i, f, 1); i++; f = 0; S.tau = e0;
+      NC.cutMoveMulti(S.sims, P, S.simTools, i, f, 1);
+      const done = i; i++; f = 0; S.tau = e0;
+      // Step mode: pause right after the move that finishes an operation (so the operator sees
+      // it complete before the next one starts), or the move where cutter comp first turns on
+      // (so they can read the tool and D value off the HUD right as it activates). Only during
+      // actual playback, not while a scrub/seek is catching up via this same function.
+      if (S.stepMode && S.playing) {
+        const compJustOn = P.CC[done] && (done === 0 || !P.CC[done - 1]);
+        const opEnding = i < n && P.OP[i] !== P.OP[done];
+        if (compJustOn || opEnding) { S.playing = false; updatePlay(); break; }
+      }
       if ((++cnt & 7) === 0 && performance.now() - t0 > budget) { S.limited = true; break; }
     } else {
       const nf = (target - s0) / dur;
@@ -1916,7 +1956,11 @@ function onOpChange() {
 }
 function buildOps() {
   const P = S.prog;
-  $('ops').innerHTML = P.ops.map((o, k) => `<li><button type="button" data-k="${k}" aria-current="false"><span class="sw" style="background:${toolHex(o.tool)}"></span><span class="t">T${o.tool}</span><span>${esc(o.label)}</span></button></li>`).join('');
+  $('ops').innerHTML = P.ops.map((o, k) => {
+    const badges = (o.comp ? `<span class="opbadge cc">${o.comp === 1 ? 'G41' : 'G42'}${o.compD ? ' D' + o.compD : ''}</span>` : '') +
+      (o.dim ? `<span class="opbadge dim">${esc(o.dim)}</span>` : '');
+    return `<li class="${o.dim ? 'op-dim' : ''}"><button type="button" data-k="${k}" aria-current="false"><span class="sw" style="background:${toolHex(o.tool)}"></span><span class="t">T${o.tool}</span><span class="opline"><span class="oplabel">${esc(o.label)}</span>${badges ? `<span class="opbadges">${badges}</span>` : ''}</span></button></li>`;
+  }).join('');
   $('ops').querySelectorAll('button').forEach(b => { b.onclick = () => goToOp(+b.dataset.k); });
 }
 function buildTicks() {
@@ -1991,6 +2035,7 @@ $('bRestart').onclick = () => { if (S.ready) { S.pendingSeek = 0; S.playing = fa
 $('bNext').onclick = () => { if (S.ready) goToOp(Math.min(S.curOp + 1, S.prog.ops.length - 1)); };
 $('bPrev').onclick = () => { if (S.ready) goToOp(S.tau - opStart(S.curOp) > 1.5 ? S.curOp : Math.max(0, S.curOp - 1)); };
 $('speedSel').onchange = e => { S.speed = +e.target.value; };
+$('stepMode').onchange = e => { S.stepMode = e.target.checked; };
 $('resSel').onchange = e => { S.res = +e.target.value; if (S.prog) rebuild(false); };
 $('applyStock').onclick = () => { if (S.prog) rebuild(false); };
 $('applyTools').onclick = () => { if (!S.prog) return; S.tools.forEach(NC.completeTool); $('applyTools').classList.remove('primary'); buildToolCards(); rebuild(false); };

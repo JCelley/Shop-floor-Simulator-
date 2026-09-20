@@ -135,6 +135,24 @@ a tool change forces a new operation.
   (unchanged means `loadText` bailed out early without mutating state). Loading anything else - a different file, a sample, a folder pick -
   always exits edit mode first (`exitCodeEdit()` at the top of `handleFiles()` and in the demo/unit-change handlers). Tested in
   `tests/codeEdit.test.js`.
+- **Cutter comp (G41/G42) per operation**: the parser tracks modal comp state (`comp`/`compD` in engine.js) the same way it already
+  tracks tool/feed/spindle, and captures the `D` word off the *same block* as the `G41`/`G42` (verified against O1228.NC and O1224.NC -
+  always on one line, e.g. `G01 G41 X.. Y.. D58`), not just "whenever comp happens to be on" - a tool-change block (`G100 ... H57 D57`)
+  carries its own unrelated `D` word that must not be picked up. Exposed as `P.CC`/`P.CD` (per move) and `op.comp`/`op.compD` (per
+  operation, first activation wins). The Operations list shows a `G41 D58`-style badge next to any operation that uses it. Verified
+  against the real O1228 job: exactly 3 finishing-contour operations, all `G41 D58` on T58 (D-register equals tool number, this shop's
+  convention). No real fixture happens to use `G42` - covered by a synthetic case matching the same pattern.
+- **Dim# display**: the CSV's column 8 ("Diameter control dim") holds `"D<n> = DIM <note>"` when the operation comment started with
+  "DIM" (see `getDimNote()` in the post). `parseSetupCsv` pulls out just the `DIM...` part per operation; `loadText`'s existing
+  opsList-merge (already used for operation names, with the same tool-sequence match guard) also copies this onto `P.ops[i].dim`. Any
+  operation with a `dim` gets a green badge and a green-tinted row in the Operations list. No real CSV fixture happens to contain an
+  actual DIM note, so this is tested with CSV text shaped exactly like the real post's column format, built directly from a real job's
+  own operation list.
+- **Step mode** (`stepMode` checkbox in the footer, `S.stepMode`): during playback only (not scrub/seek, which also calls `advance()`),
+  pauses right after the move that finishes an operation (before the next one starts) or the move where cutter comp first turns on -
+  detected inside `advance()`'s per-move loop so it stops at the exact move, not just "sometime this frame." Verified against the real
+  O1228 job: stepping through the whole program hits exactly its 3 real cutter-comp activations. Tested in `tests/opBadges.test.js`
+  (badges) and `tests/stepMode.test.js` (playback).
 
 ## 4. File formats
 

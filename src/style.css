@@ -139,6 +139,15 @@ button, select, input { font: inherit; color: inherit; }
 #ops button:hover { background: var(--panel2); }
 #ops button[aria-current="true"] { background: var(--panel2); border-left-color: var(--accent); font-weight: 700; }
 #ops .t { font: 600 14px var(--mono); color: var(--muted); }
+#ops .opline { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+#ops .oplabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ops .opbadges { display: flex; gap: 6px; flex-wrap: wrap; }
+#ops .opbadge { font: 700 11px/1.5 var(--mono); padding: 0 6px; border-radius: 3px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); }
+#ops .opbadge.cc { color: #fff; background: var(--blue); border-color: transparent; }
+#ops .opbadge.dim { color: #fff; background: var(--green); border-color: transparent; }
+#ops li.op-dim button { background: color-mix(in srgb, var(--green) 16%, transparent); }
+#ops li.op-dim button:hover { background: color-mix(in srgb, var(--green) 26%, transparent); }
+#ops li.op-dim button[aria-current="true"] { background: color-mix(in srgb, var(--green) 30%, transparent); }
 summary { cursor: pointer; padding: 12px 14px; font-weight: 700; font-size: 16px; min-height: 44px; }
 .pad { padding: 0 14px 14px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
@@ -164,6 +173,8 @@ label.f select { font-family: var(--font); }
 .time { font: 600 18px var(--mono); min-width: 9.5ch; text-align: right; }
 .speed { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .speed .sel { color: var(--ink); }
+.stepToggle { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+.stepToggle input { accent-color: var(--accent); cursor: pointer; }
 
 #toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 6px; max-width: min(560px, 92vw); z-index: 20; font-weight: 600; box-shadow: var(--shadow); }
 .drop { outline: 3px dashed var(--accent); outline-offset: -8px; }

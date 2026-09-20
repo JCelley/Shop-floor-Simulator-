@@ -12,6 +12,8 @@ const steps = [
   ['per-plane simulation (3+2 Phase 2, real 3+2 job)', 'node', ['tests/planes.test.js']],
   ['open job folder (program picker)', 'node', ['tests/folderPicker.test.js']],
   ['G-code editing (edit + re-run, never saved)', 'node', ['tests/codeEdit.test.js']],
+  ['operations list badges (cutter comp + Dim#)', 'node', ['tests/opBadges.test.js']],
+  ['step mode (pause at op/comp boundaries)', 'node', ['tests/stepMode.test.js']],
   ...(py ? [['fusion export script (math)', py, ['tests/script.test.py']], ['fusion add-in (fake Fusion, real job data)', py, ['tests/addin.test.py']]] : []),
   ['page UI (jsdom, stubbed WebGL)', 'node', ['tests/ui.test.js']],
   ['real cascading-post JSON + real NC (jsdom)', 'node', ['tests/postJson.test.js']],

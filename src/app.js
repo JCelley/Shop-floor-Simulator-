@@ -14,7 +14,7 @@ const S = {
   prog: null, name: '', tools: [], simTools: new Map(), sim: null, sims: new Map(), planes: new Map(), snaps: [], finalH: null, finalOp: null,
   tau: 0, cur: { i: 0, f: 0 }, playing: false, speed: 30, pendingSeek: null, mode: 'progress', res: 360,
   token: 0, ready: false, curOp: -1, limited: false, stats: {}, needsRender: true, stock: null,
-  path: 'op', rapids: false, holder: true, ghost: true, hudTool: -1, hudLine: -1, toolsDirty: false, setup: null, fixtures: true,
+  path: 'op', rapids: false, holder: true, ghost: true, hudTool: -1, hudLine: -1, toolsDirty: false, setup: null, fixtures: true, stepMode: false,
 };
 
 /* ================= viewer ================= */
@@ -488,7 +488,7 @@ async function loadText(text, name, opts = {}) {
     const opsList = opts.ops || (csv && csv.ops) || null, extraWarn = [];
     if (opsList) {
       const same = opsList.length === P.ops.length && opsList.every((o, i) => o.tool === P.ops[i].tool);
-      if (same) P.ops.forEach((o, i) => { if (opsList[i].label) o.label = opsList[i].label; });
+      if (same) P.ops.forEach((o, i) => { if (opsList[i].label) o.label = opsList[i].label; if (opsList[i].dim) o.dim = opsList[i].dim; });
       else if (opts.ops) extraWarn.push(`The job file lists ${opsList.length} operations but the program has ${P.ops.length}, so operation names come from the program's own comments. The file may be out of date.`);
     }
     S.ready = false; S.playing = false; updatePlay(); S.curOp = -1; S.cur = { i: 0, f: 0 }; S.tau = 0;
@@ -654,7 +654,17 @@ function advance(target, budget) {
   while (i < n) {
     const s0 = i > 0 ? cum[i - 1] : 0, e0 = cum[i], dur = e0 - s0;
     if (target >= e0 || dur <= 1e-12) {
-      NC.cutMoveMulti(S.sims, P, S.simTools, i, f, 1); i++; f = 0; S.tau = e0;
+      NC.cutMoveMulti(S.sims, P, S.simTools, i, f, 1);
+      const done = i; i++; f = 0; S.tau = e0;
+      // Step mode: pause right after the move that finishes an operation (so the operator sees
+      // it complete before the next one starts), or the move where cutter comp first turns on
+      // (so they can read the tool and D value off the HUD right as it activates). Only during
+      // actual playback, not while a scrub/seek is catching up via this same function.
+      if (S.stepMode && S.playing) {
+        const compJustOn = P.CC[done] && (done === 0 || !P.CC[done - 1]);
+        const opEnding = i < n && P.OP[i] !== P.OP[done];
+        if (compJustOn || opEnding) { S.playing = false; updatePlay(); break; }
+      }
       if ((++cnt & 7) === 0 && performance.now() - t0 > budget) { S.limited = true; break; }
     } else {
       const nf = (target - s0) / dur;
@@ -772,7 +782,11 @@ function onOpChange() {
 }
 function buildOps() {
   const P = S.prog;
-  $('ops').innerHTML = P.ops.map((o, k) => `<li><button type="button" data-k="${k}" aria-current="false"><span class="sw" style="background:${toolHex(o.tool)}"></span><span class="t">T${o.tool}</span><span>${esc(o.label)}</span></button></li>`).join('');
+  $('ops').innerHTML = P.ops.map((o, k) => {
+    const badges = (o.comp ? `<span class="opbadge cc">${o.comp === 1 ? 'G41' : 'G42'}${o.compD ? ' D' + o.compD : ''}</span>` : '') +
+      (o.dim ? `<span class="opbadge dim">${esc(o.dim)}</span>` : '');
+    return `<li class="${o.dim ? 'op-dim' : ''}"><button type="button" data-k="${k}" aria-current="false"><span class="sw" style="background:${toolHex(o.tool)}"></span><span class="t">T${o.tool}</span><span class="opline"><span class="oplabel">${esc(o.label)}</span>${badges ? `<span class="opbadges">${badges}</span>` : ''}</span></button></li>`;
+  }).join('');
   $('ops').querySelectorAll('button').forEach(b => { b.onclick = () => goToOp(+b.dataset.k); });
 }
 function buildTicks() {
@@ -847,6 +861,7 @@ $('bRestart').onclick = () => { if (S.ready) { S.pendingSeek = 0; S.playing = fa
 $('bNext').onclick = () => { if (S.ready) goToOp(Math.min(S.curOp + 1, S.prog.ops.length - 1)); };
 $('bPrev').onclick = () => { if (S.ready) goToOp(S.tau - opStart(S.curOp) > 1.5 ? S.curOp : Math.max(0, S.curOp - 1)); };
 $('speedSel').onchange = e => { S.speed = +e.target.value; };
+$('stepMode').onchange = e => { S.stepMode = e.target.checked; };
 $('resSel').onchange = e => { S.res = +e.target.value; if (S.prog) rebuild(false); };
 $('applyStock').onclick = () => { if (S.prog) rebuild(false); };
 $('applyTools').onclick = () => { if (!S.prog) return; S.tools.forEach(NC.completeTool); $('applyTools').classList.remove('primary'); buildToolCards(); rebuild(false); };

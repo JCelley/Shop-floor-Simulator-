@@ -177,7 +177,10 @@ const NC = (() => {
       }
       const g = /T\s*(\d+)/i.exec(r[3] || ''); if (!g) continue;
       const no = +g[1], k = out.unit === 'in' ? 25.4 : 1;
-      out.ops.push({ label: String(desc).replace(/^\s*OP\d+\s*\|\s*/i, '').trim(), tool: no });
+      // Column 8 ("Diameter control dim") holds "D<n> = DIM ..." when the operation-comment
+      // note started with DIM (see the post's getDimNote()) - pull out just the DIM... part.
+      const dimM = /DIM.*/i.exec(r[8] || '');
+      out.ops.push({ label: String(desc).replace(/^\s*OP\d+\s*\|\s*/i, '').trim(), tool: no, dim: dimM ? dimM[0].trim() : '' });
       if (!out.tools.find(t => t.no === no)) out.tools.push({ no, ooh: parseFloat(r[4]) * k, holder: (r[5] || '').trim(), cutD: parseFloat(r[9]) * k, tipRaw: (r[11] || '').trim(), name: (r[12] || '').trim() });
     }
     return out;
@@ -250,7 +253,7 @@ const NC = (() => {
   function parseProgram(text, opts) {
     opts = opts || {};
     const lines = String(text).replace(/\r/g, '').split('\n');
-    const X = [], Y = [], Z = [], K = [], F = [], S = [], TL = [], CO = [], OP = [], LN = [], PL = [];
+    const X = [], Y = [], Z = [], K = [], F = [], S = [], TL = [], CO = [], OP = [], LN = [], PL = [], CC = [], CD = [];
     const ops = [], tools = new Map(), warnings = [], notes = [], warned = new Set();
     const warn = m => { if (!warned.has(m)) { warned.add(m); warnings.push(m); } };
     // planes[0] is always the base (untilted) frame. curPlaneId is which one new moves belong to.
@@ -284,6 +287,7 @@ const NC = (() => {
     let feed = 0, spindle = 0, spinOn = false, coolant = 0, tool = 0, pendingTool = 0;
     let cycleR = 0, cycleZ = 0, cycleInit = 0;
     let pendingLabel = null, forceNewOp = true, init = null;
+    let comp = 0, compD = 0; // 0 off, 1 = G41 (left), 2 = G42 (right); compD = the D register named on that same block
 
     const getTool = no => {
       let t = tools.get(no);
@@ -295,11 +299,12 @@ const NC = (() => {
       if (!init) init = { x: nx, y: ny, z: nz };
       if (forceNewOp || pendingLabel !== null || !ops.length) {
         const t = getTool(tool);
-        ops.push({ label: pendingLabel || t.name || ('T' + tool), tool, move: X.length, line: ln });
+        ops.push({ label: pendingLabel || t.name || ('T' + tool), tool, move: X.length, line: ln, comp: 0, compD: 0, dim: '' });
         pendingLabel = null; forceNewOp = false;
       }
       X.push(nx); Y.push(ny); Z.push(nz); K.push(kind); F.push(feed);
       S.push(spinOn ? spindle : 0); TL.push(tool); CO.push(coolant); OP.push(ops.length - 1); LN.push(ln); PL.push(curPlaneId);
+      CC.push(comp); CD.push(compD);
       x = nx; y = ny; z = nz;
     };
 
@@ -395,10 +400,17 @@ const NC = (() => {
           case 53.1: if (pendingPlane) { curPlaneId = registerPlane(pendingPlane); pendingPlane = null; } skip = true; break;
           case 69: curPlaneId = 0; skip = true; break;
           case 100: toolChange = true; break;
-          case 41: case 42: if (!notes.includes(CC_NOTE)) notes.push(CC_NOTE); break;
+          case 40: comp = 0; compD = 0; break;
+          case 41: comp = 1; if (!notes.includes(CC_NOTE)) notes.push(CC_NOTE); break;
+          case 42: comp = 2; if (!notes.includes(CC_NOTE)) notes.push(CC_NOTE); break;
           default: break;
         }
       }
+      // The D word that activates comp is always on the same block as G41/G42 in this shop's
+      // programs (verified against O1228.NC and O1224.NC); tying the capture to that specific
+      // transition, not "whenever comp happens to be on", avoids picking up an unrelated D word
+      // from a tool-change block (G100 also carries its own D, the diameter offset register).
+      if ((g.includes(41) || g.includes(42)) && 'D' in a) compD = a.D;
       if ('F' in a) feed = a.F * k();
       if ('S' in a) spindle = a.S;
       if ('T' in a) pendingTool = Math.round(a.T);
@@ -470,7 +482,7 @@ const NC = (() => {
       X: Float32Array.from(X), Y: Float32Array.from(Y), Z: Float32Array.from(Z),
       K: Uint8Array.from(K), F: Float32Array.from(F), S: Float32Array.from(S),
       TL: Uint16Array.from(TL), CO: Uint8Array.from(CO), OP: Uint16Array.from(OP), LN: Uint32Array.from(LN),
-      PL: Uint16Array.from(PL), planes,
+      PL: Uint16Array.from(PL), planes, CC: Uint8Array.from(CC), CD: Uint16Array.from(CD),
       inch,
     };
     // tools used by moves must exist
@@ -506,6 +518,10 @@ const NC = (() => {
         bb0.zmin = Math.min(bb0.zmin, P.Z[i]); bb0.zmax = Math.max(bb0.zmax, P.Z[i]);
       }
       px = P.X[i]; py = P.Y[i]; pz = P.Z[i];
+      // Cutter comp per operation, for the Operations list: first activation wins if an op
+      // somehow toggles between G41/G42 more than once (rare, but don't overwrite with the
+      // second one - the operator wants to know it's active and which D register, not a history).
+      if (P.CC[i] && !P.ops[P.OP[i]].comp) { const o = P.ops[P.OP[i]]; o.comp = P.CC[i]; o.compD = P.CD[i]; }
     }
     P.total = tt;
     // Prefer base-plane-only bounds; fall back to every move only if the base plane somehow has none.
