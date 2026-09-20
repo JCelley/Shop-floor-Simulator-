@@ -1,0 +1,2206 @@
+{
+    "data": [
+        {
+            "BMC": "carbide",
+            "GRADE": "Mill Generic",
+            "description": "3/8 AXFPS Bull .008R 95500432 .8248LOC",
+            "expressions": {
+                "holder_description": "'NBT30-SK13C-150'",
+                "holder_vendor": "'Lindex nikken'",
+                "tool_bodyLength": "1.28 in",
+                "tool_cornerRadius": ".008 in",
+                "tool_description": "'3/8 AXFPS Bull .008R 95500432 .8248LOC'",
+                "tool_diameter": ".375 in",
+                "tool_fluteLength": ".8248 in",
+                "tool_material": "'carbide'",
+                "tool_numberOfFlutes": "3",
+                "tool_overallLength": "3.0 in",
+                "tool_productId": "'A-182'",
+                "tool_shaftDiameter": ".375 in",
+                "tool_shoulderLength": "1.28 in"
+            },
+            "geometry": {
+                "CSP": false,
+                "DC": 0.375,
+                "HAND": true,
+                "LB": 1.28,
+                "LCF": 0.8248,
+                "NOF": 3,
+                "NT": 1,
+                "OAL": 3,
+                "RE": 0.008,
+                "SFDM": 0.375,
+                "TA": 0,
+                "TP": 0,
+                "assemblyGaugeLength": 6.988622,
+                "shoulder-diameter": 0.375,
+                "shoulder-length": 1.28,
+                "thread-profile-angle": 60,
+                "tip-diameter": 0,
+                "tip-length": 0,
+                "tip-offset": 0
+            },
+            "guid": "60c4bb31-a709-4bef-a6c3-cf9a105e5908",
+            "holder": {
+                "description": "NBT30-SK13C-150",
+                "gaugeLength": 5.708622,
+                "guid": "b8f229bb-ce38-45a6-9680-403c807f8dc2",
+                "product-id": "",
+                "product-link": "",
+                "segments": [
+                    {
+                        "height": 4.8425196850394,
+                        "lower-diameter": 1.2992125984252,
+                        "upper-diameter": 1.2992125984252
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.7322834645669,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.13385826771654,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.13311023622047,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.25984251968504,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.7322834645669
+                    },
+                    {
+                        "height": 0.078740157480315,
+                        "lower-diameter": 1.25,
+                        "upper-diameter": 1.25
+                    }
+                ],
+                "type": "holder",
+                "unit": "inches",
+                "vendor": "Lindex nikken"
+            },
+            "post-process": {
+                "break-control": false,
+                "comment": "",
+                "diameter-offset": 52,
+                "length-offset": 52,
+                "live": true,
+                "manual-tool-change": false,
+                "number": 52,
+                "turret": 0
+            },
+            "product-id": "A-182",
+            "product-link": "",
+            "start-values": {
+                "presets": [
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_coolant": "'flood tool'",
+                            "tool_feedPerTooth": ".0045 in",
+                            "tool_feedPlunge": "200 inpm",
+                            "tool_feedRamp": "225 inpm",
+                            "tool_rampAngle": "5.2 degrees",
+                            "tool_spindleSpeed": "16000 rpm"
+                        },
+                        "f_n": 0.0125,
+                        "f_z": 0.004499999999999998,
+                        "guid": "9daf6915-6c44-4e94-b134-e101b9a5225b",
+                        "material": {
+                            "category": "all",
+                            "query": "",
+                            "use-hardness": false
+                        },
+                        "n": 16000,
+                        "n_ramp": 16000,
+                        "name": "AL Fraisa recomendations from PDF ",
+                        "ramp-angle": 5.2,
+                        "tool-coolant": "flood tool",
+                        "use-stepdown": false,
+                        "use-stepover": false,
+                        "v_c": 1570.7963267948965,
+                        "v_f": 215.99999999999991,
+                        "v_f_leadIn": 215.99999999999991,
+                        "v_f_leadOut": 215.99999999999991,
+                        "v_f_plunge": 200,
+                        "v_f_ramp": 225,
+                        "v_f_transition": 215.99999999999991
+                    }
+                ]
+            },
+            "tool-block": null,
+            "type": "bull nose end mill",
+            "unit": "inches",
+            "vendor": ""
+        },
+        {
+            "BMC": "carbide",
+            "GRADE": "Mill Generic",
+            "description": "3/8 7FL Roughing EM",
+            "expressions": {
+                "holder_description": "'NBT30-SK13C-90 (85mm)'",
+                "tool_bodyLength": "1.2 in",
+                "tool_comment": "'FTL-EC1F8B'",
+                "tool_description": "'3/8 7FL Roughing EM'",
+                "tool_diameter": ".375 in",
+                "tool_fluteLength": "1 in",
+                "tool_lengthOffset": "tool_number",
+                "tool_material": "'carbide'",
+                "tool_number": "57",
+                "tool_numberOfFlutes": "7",
+                "tool_productId": "'A-61'",
+                "tool_productLink": "'https://americanprecisionworks.adionsystems.com/procnc/tools/A/A-61$'",
+                "tool_shoulderLength": "1.13 in",
+                "tool_vendor": "'LC-72'"
+            },
+            "geometry": {
+                "CSP": false,
+                "DC": 0.375,
+                "HAND": true,
+                "LB": 1.2,
+                "LCF": 1,
+                "NOF": 7,
+                "NT": 1,
+                "OAL": 1.5,
+                "RE": 0,
+                "SFDM": 0.375,
+                "TA": 0,
+                "TP": 0,
+                "assemblyGaugeLength": 4.546417,
+                "shoulder-diameter": 0.375,
+                "shoulder-length": 1.13,
+                "thread-profile-angle": 60,
+                "tip-diameter": 0,
+                "tip-length": 0,
+                "tip-offset": 0
+            },
+            "guid": "5a3f71c3-a540-493e-b9ee-fe8179ec7e5d",
+            "holder": {
+                "description": "NBT30-SK13C-90 (85mm)",
+                "gaugeLength": 3.3464173228346,
+                "guid": "c8a9aa5f-8a66-4024-8467-5b68a20ae718",
+                "product-id": "HLD-C8EB24",
+                "product-link": "",
+                "segments": [
+                    {
+                        "height": 2.5590551181102,
+                        "lower-diameter": 1.2992125984252,
+                        "upper-diameter": 1.2992125984252
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.7322834645669,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.13385826771654,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.13311023622047,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.25984251968504,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.7322834645669
+                    },
+                    {
+                        "height": 0.078740157480315,
+                        "lower-diameter": 1.25,
+                        "upper-diameter": 1.25
+                    }
+                ],
+                "type": "holder",
+                "unit": "inches",
+                "vendor": ""
+            },
+            "post-process": {
+                "break-control": false,
+                "comment": "FTL-EC1F8B",
+                "diameter-offset": 57,
+                "length-offset": 57,
+                "live": true,
+                "manual-tool-change": false,
+                "number": 57,
+                "turret": 0
+            },
+            "product-id": "A-61",
+            "product-link": "https://americanprecisionworks.adionsystems.com/procnc/tools/A/A-61$",
+            "start-values": {
+                "presets": [
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": "0.0025 in",
+                            "tool_feedPlunge": "40 inpm",
+                            "tool_feedRamp": "20 inpm",
+                            "tool_presetMaterialCategory": "'metal'",
+                            "tool_presetMaterialQuery": "'SS'",
+                            "tool_stepdown": "tool_fluteLength * 0.4",
+                            "tool_stepover": "tool_diameter * 0.06",
+                            "tool_surfaceSpeed": "157.00000000000006 fpm"
+                        },
+                        "f_n": 0.025012680362976054,
+                        "f_z": 0.0024999999999999996,
+                        "guid": "95a1abc0-599d-4eb7-8cdf-6bc8088ee516",
+                        "material": {
+                            "category": "metal",
+                            "query": "SS Austenitic - 310, 316",
+                            "use-hardness": false
+                        },
+                        "n": 1599.1888681873647,
+                        "n_ramp": 1599.1888681873647,
+                        "name": "SS 1.200 30-SK13-90 (85mm) - Rough 2",
+                        "ramp-angle": 2,
+                        "stepdown": 0.4,
+                        "stepover": 0.022499999999999996,
+                        "stock-materials": [
+                            "SS Austenitic - 310, 316"
+                        ],
+                        "tool-coolant": "flood",
+                        "use-stepdown": true,
+                        "use-stepover": true,
+                        "v_c": 157.00000000000006,
+                        "v_f": 27.98580519327888,
+                        "v_f_leadIn": 27.98580519327888,
+                        "v_f_leadOut": 27.98580519327888,
+                        "v_f_plunge": 40,
+                        "v_f_ramp": 20,
+                        "v_f_transition": 27.98580519327888
+                    },
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": "0.0038 in",
+                            "tool_feedPlunge": "40 inpm",
+                            "tool_feedRamp": "20 inpm",
+                            "tool_presetMaterialCategory": "'metal'",
+                            "tool_presetMaterialQuery": "'SS'",
+                            "tool_stepdown": "tool_fluteLength * 0.5",
+                            "tool_stepover": "tool_diameter * 0.06",
+                            "tool_surfaceSpeed": "280.0000000000001 fpm"
+                        },
+                        "f_n": 0.01402496720352586,
+                        "f_z": 0.0038,
+                        "guid": "5e02d40c-54ea-47d9-b248-3efc07347aef",
+                        "material": {
+                            "category": "metal",
+                            "query": "SS Austenitic - 310, 316",
+                            "use-hardness": false
+                        },
+                        "n": 2852.0565802067654,
+                        "n_ramp": 2852.0565802067654,
+                        "name": "SS 1.200 30-SK13-90 (85mm) - Rough 6",
+                        "ramp-angle": 2,
+                        "stepdown": 0.49999999999999983,
+                        "stepover": 0.022499999999999996,
+                        "stock-materials": [
+                            "SS Austenitic - 310, 316"
+                        ],
+                        "tool-coolant": "flood",
+                        "use-stepdown": true,
+                        "use-stepover": true,
+                        "v_c": 280.0000000000001,
+                        "v_f": 75.86470503349996,
+                        "v_f_leadIn": 75.86470503349996,
+                        "v_f_leadOut": 75.86470503349996,
+                        "v_f_plunge": 40,
+                        "v_f_ramp": 20,
+                        "v_f_transition": 75.86470503349996
+                    },
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": "0.0035 in",
+                            "tool_feedPlunge": "40 inpm",
+                            "tool_feedRamp": "20 inpm",
+                            "tool_presetMaterialCategory": "'metal'",
+                            "tool_presetMaterialQuery": "'SS'",
+                            "tool_stepdown": "tool_fluteLength * 0.5",
+                            "tool_stepover": "tool_diameter * 0.08",
+                            "tool_surfaceSpeed": "345 fpm"
+                        },
+                        "f_n": 0.011382582078223886,
+                        "f_z": 0.0035,
+                        "guid": "26d0f5e0-cfc8-47b2-84de-14422b3c514b",
+                        "material": {
+                            "category": "metal",
+                            "query": "SS Austenitic - 310, 316",
+                            "use-hardness": false
+                        },
+                        "n": 3514.14114346905,
+                        "n_ramp": 3514.14114346905,
+                        "name": "SS 1.200 30-SK13-150 - Rough",
+                        "ramp-angle": 2,
+                        "stepdown": 0.49999999999999983,
+                        "stepover": 0.029999999999999992,
+                        "stock-materials": [
+                            "SS Austenitic - 310, 316"
+                        ],
+                        "tool-coolant": "flood",
+                        "use-stepdown": true,
+                        "use-stepover": true,
+                        "v_c": 345.00000000000006,
+                        "v_f": 86.09645801499173,
+                        "v_f_leadIn": 86.09645801499173,
+                        "v_f_leadOut": 86.09645801499173,
+                        "v_f_plunge": 40,
+                        "v_f_ramp": 20,
+                        "v_f_transition": 86.09645801499173
+                    },
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": "0.002 in",
+                            "tool_feedPlunge": "40 inpm",
+                            "tool_feedRamp": "20 inpm",
+                            "tool_presetMaterialCategory": "'metal'",
+                            "tool_presetMaterialQuery": "'SS'",
+                            "tool_stepdown": "tool_fluteLength * 0.25",
+                            "tool_stepover": "tool_diameter * 0.05",
+                            "tool_surfaceSpeed": "300 fpm"
+                        },
+                        "f_n": 0.013089969389957467,
+                        "f_z": 0.0019999999999999996,
+                        "guid": "78341a99-9f66-40d5-9cfa-5e57045a2130",
+                        "material": {
+                            "category": "metal",
+                            "query": "SS Austenitic - 310, 316",
+                            "use-hardness": false
+                        },
+                        "n": 3055.7749073643913,
+                        "n_ramp": 3055.7749073643913,
+                        "name": "SS 1.200 30-SK13-150 - Rough 2",
+                        "ramp-angle": 2,
+                        "stepdown": 0.24999999999999992,
+                        "stepover": 0.01875,
+                        "stock-materials": [
+                            "SS Austenitic - 310, 316"
+                        ],
+                        "tool-coolant": "flood",
+                        "use-stepdown": true,
+                        "use-stepover": true,
+                        "v_c": 300.00000000000006,
+                        "v_f": 42.78084870310147,
+                        "v_f_leadIn": 42.78084870310147,
+                        "v_f_leadOut": 42.78084870310147,
+                        "v_f_plunge": 40,
+                        "v_f_ramp": 20,
+                        "v_f_transition": 42.78084870310147
+                    }
+                ]
+            },
+            "tool-block": null,
+            "type": "flat end mill",
+            "unit": "inches",
+            "vendor": "LC-72"
+        },
+        {
+            "BMC": "carbide",
+            "GRADE": "generic",
+            "description": ".1575 4mm drill 140 deg TSC",
+            "expressions": {
+                "holder_description": "'NBT30-SK13C-90 (85mm)'",
+                "tool_bodyLength": "1.52 in",
+                "tool_comment": "'FTL-80400B'",
+                "tool_description": "'.1575 4mm drill 140 deg TSC'",
+                "tool_diameter": ".1575 in",
+                "tool_fluteLength": "1.141 in",
+                "tool_lengthOffset": "tool_number",
+                "tool_material": "'carbide'",
+                "tool_number": "59",
+                "tool_overallLength": "4 in",
+                "tool_productId": "'D-113'",
+                "tool_shoulderLength": "1.52 in",
+                "tool_tipAngle": "140 degrees",
+                "tool_vendor": "'LC-120'"
+            },
+            "geometry": {
+                "CSP": false,
+                "DC": 0.1575,
+                "HAND": true,
+                "LB": 1.52,
+                "LCF": 1.141,
+                "NOF": 2,
+                "NT": 1,
+                "OAL": 4,
+                "RE": 0,
+                "SFDM": 0.1575,
+                "SIG": 140,
+                "TP": 0,
+                "assemblyGaugeLength": 4.866417,
+                "shoulder-length": 1.52,
+                "thread-profile-angle": 60,
+                "tip-diameter": 0,
+                "tip-length": 0,
+                "tip-offset": 0
+            },
+            "guid": "66144d26-48ac-4daa-94b7-06e682407424",
+            "holder": {
+                "description": "NBT30-SK13C-90 (85mm)",
+                "gaugeLength": 3.346417,
+                "guid": "c8a9aa5f-8a66-4024-8467-5b68a20ae718",
+                "product-id": "HLD-C8EB24",
+                "product-link": "",
+                "segments": [
+                    {
+                        "height": 2.5590551181102,
+                        "lower-diameter": 1.2992125984252,
+                        "upper-diameter": 1.2992125984252
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.7322834645669,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.13385826771654,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.13311023622047,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.25984251968504,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.7322834645669
+                    },
+                    {
+                        "height": 0.078740157480315,
+                        "lower-diameter": 1.25,
+                        "upper-diameter": 1.25
+                    }
+                ],
+                "type": "holder",
+                "unit": "inches",
+                "vendor": ""
+            },
+            "post-process": {
+                "break-control": false,
+                "comment": "FTL-80400B",
+                "diameter-offset": 59,
+                "length-offset": 59,
+                "live": true,
+                "manual-tool-change": false,
+                "number": 59,
+                "turret": 0
+            },
+            "product-id": "D-113",
+            "product-link": "",
+            "start-values": {
+                "presets": [
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_coolant": "'tool'",
+                            "tool_feedPerRevolution": ".004 in",
+                            "tool_surfaceSpeed": "300 fpm"
+                        },
+                        "f_z": 0,
+                        "guid": "c4b4135d-bbe6-4e7e-9e63-215d0ab6df31",
+                        "material": {
+                            "category": "all",
+                            "query": "",
+                            "use-hardness": false
+                        },
+                        "n": 7275.654541343788,
+                        "name": "Default preset",
+                        "tool-coolant": "tool",
+                        "use-feed-per-revolution": false,
+                        "v_c": 300.00000000000006,
+                        "v_f": 0,
+                        "v_f_leadIn": 0,
+                        "v_f_leadOut": 0,
+                        "v_f_plunge": 29.10261816537515,
+                        "v_f_ramp": 0,
+                        "v_f_retract": 40,
+                        "v_f_transition": 0
+                    }
+                ]
+            },
+            "tool-block": null,
+            "type": "drill",
+            "unit": "inches",
+            "vendor": "LC-120"
+        },
+        {
+            "BMC": "carbide",
+            "GRADE": "generic",
+            "description": ".136Ø #29 Drill 140deg TSC",
+            "expressions": {
+                "holder_description": "'NBT30-SK13C-90 (85mm)'",
+                "tool_bodyLength": "1.06 in",
+                "tool_comment": "'FTL-0DFE41'",
+                "tool_description": "'.136Ø #29 Drill 140deg TSC'",
+                "tool_diameter": ".136 in",
+                "tool_fluteLength": ".551 in",
+                "tool_lengthOffset": "tool_number",
+                "tool_material": "'carbide'",
+                "tool_number": "60",
+                "tool_overallLength": "3.0 in",
+                "tool_productId": "'D-90'",
+                "tool_shaftDiameter": ".236 in",
+                "tool_shoulderLength": ".6 in",
+                "tool_tipAngle": "140 degrees",
+                "tool_vendor": "'LC-97'"
+            },
+            "geometry": {
+                "CSP": false,
+                "DC": 0.136,
+                "HAND": true,
+                "LB": 1.06,
+                "LCF": 0.551,
+                "NOF": 2,
+                "NT": 1,
+                "OAL": 3,
+                "RE": 0,
+                "SFDM": 0.236,
+                "SIG": 140,
+                "TP": 0,
+                "assemblyGaugeLength": 4.406417,
+                "shoulder-length": 0.6,
+                "thread-profile-angle": 60,
+                "tip-diameter": 0,
+                "tip-length": 0,
+                "tip-offset": 0
+            },
+            "guid": "9fd82ea5-7245-4123-bdf2-a136466594a4",
+            "holder": {
+                "description": "NBT30-SK13C-90 (85mm)",
+                "gaugeLength": 3.346417,
+                "guid": "c8a9aa5f-8a66-4024-8467-5b68a20ae718",
+                "product-id": "HLD-C8EB24",
+                "product-link": "",
+                "segments": [
+                    {
+                        "height": 2.5590551181102,
+                        "lower-diameter": 1.2992125984252,
+                        "upper-diameter": 1.2992125984252
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.7322834645669,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.13385826771654,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.13311023622047,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.25984251968504,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.7322834645669
+                    },
+                    {
+                        "height": 0.078740157480315,
+                        "lower-diameter": 1.25,
+                        "upper-diameter": 1.25
+                    }
+                ],
+                "type": "holder",
+                "unit": "inches",
+                "vendor": ""
+            },
+            "post-process": {
+                "break-control": false,
+                "comment": "FTL-0DFE41",
+                "diameter-offset": 60,
+                "length-offset": 60,
+                "live": true,
+                "manual-tool-change": false,
+                "number": 60,
+                "turret": 0
+            },
+            "product-id": "D-90",
+            "product-link": "",
+            "start-values": {
+                "presets": [
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPlunge": "2 inpm",
+                            "tool_spindleSpeed": "2000 rpm"
+                        },
+                        "f_z": 0,
+                        "guid": "cb710ede-53ac-4fbc-8454-7f3e268a91e9",
+                        "material": {
+                            "category": "all",
+                            "query": "",
+                            "use-hardness": false
+                        },
+                        "n": 2000,
+                        "name": "Default preset",
+                        "tool-coolant": "flood",
+                        "use-feed-per-revolution": false,
+                        "v_c": 71.20943348136865,
+                        "v_f": 0,
+                        "v_f_leadIn": 0,
+                        "v_f_leadOut": 0,
+                        "v_f_plunge": 1.9999999999999991,
+                        "v_f_ramp": 0,
+                        "v_f_retract": 40,
+                        "v_f_transition": 0
+                    },
+                    {
+                        "description": "",
+                        "f_z": 0,
+                        "guid": "6f8de423-6385-4db0-a90d-26e338ab1832",
+                        "material": {
+                            "category": "metal",
+                            "query": "SS Austenitic - 310, 316",
+                            "use-hardness": false
+                        },
+                        "n": 3370,
+                        "name": "SS",
+                        "stock-materials": [
+                            "SS Austenitic - 310, 316"
+                        ],
+                        "tool-coolant": "flood tool",
+                        "use-feed-per-revolution": false,
+                        "v_c": 119.98789541610618,
+                        "v_f": 0,
+                        "v_f_leadIn": 0,
+                        "v_f_leadOut": 0,
+                        "v_f_plunge": 11.789999999999996,
+                        "v_f_ramp": 0,
+                        "v_f_retract": 40,
+                        "v_f_transition": 0
+                    }
+                ]
+            },
+            "tool-block": null,
+            "type": "drill",
+            "unit": "inches",
+            "vendor": "LC-97"
+        },
+        {
+            "BMC": "carbide",
+            "GRADE": "Mill Generic",
+            "description": ".375 90DEG CHAMFER",
+            "expressions": {
+                "holder_description": "'NBT30-SK13C-90 (85mm)'",
+                "tool_bodyLength": "1.1 in",
+                "tool_comment": "'FTL-6F61F8'",
+                "tool_description": "'.375 90DEG CHAMFER'",
+                "tool_diameter": ".375 in",
+                "tool_lengthOffset": "tool_number",
+                "tool_material": "'carbide'",
+                "tool_number": "61",
+                "tool_numberOfFlutes": "5",
+                "tool_overallLength": "4.0 in",
+                "tool_productId": "'L-74'",
+                "tool_productLink": "'https://americanprecisionworks.adionsystems.com/procnc/tools/L/L-74$'",
+                "tool_shaftDiameter": ".375 in",
+                "tool_shoulderLength": ".875 in",
+                "tool_tipDiameter": ".07 in",
+                "tool_vendor": "'LC-83'"
+            },
+            "geometry": {
+                "CSP": false,
+                "DC": 0.375,
+                "HAND": true,
+                "LB": 1.1,
+                "LCF": 0.75,
+                "NOF": 5,
+                "NT": 1,
+                "OAL": 4,
+                "RE": 0,
+                "SFDM": 0.375,
+                "TA": 45,
+                "TP": 0,
+                "assemblyGaugeLength": 4.446417,
+                "shoulder-diameter": 0.375,
+                "shoulder-length": 0.875,
+                "thread-profile-angle": 60,
+                "tip-diameter": 0.07,
+                "tip-length": 0,
+                "tip-offset": 0
+            },
+            "guid": "ad81c7e5-1cdd-4b58-b348-409a014d814b",
+            "holder": {
+                "description": "NBT30-SK13C-90 (85mm)",
+                "gaugeLength": 3.346417,
+                "guid": "c8a9aa5f-8a66-4024-8467-5b68a20ae718",
+                "product-id": "HLD-C8EB24",
+                "product-link": "",
+                "segments": [
+                    {
+                        "height": 2.5590551181102,
+                        "lower-diameter": 1.2992125984252,
+                        "upper-diameter": 1.2992125984252
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.7322834645669,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.13385826771654,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.13311023622047,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.25984251968504,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.7322834645669
+                    },
+                    {
+                        "height": 0.078740157480315,
+                        "lower-diameter": 1.25,
+                        "upper-diameter": 1.25
+                    }
+                ],
+                "type": "holder",
+                "unit": "inches",
+                "vendor": ""
+            },
+            "post-process": {
+                "break-control": false,
+                "comment": "FTL-6F61F8",
+                "diameter-offset": 61,
+                "length-offset": 61,
+                "live": true,
+                "manual-tool-change": false,
+                "number": 61,
+                "turret": 0
+            },
+            "product-id": "L-74",
+            "product-link": "https://americanprecisionworks.adionsystems.com/procnc/tools/L/L-74$",
+            "start-values": {
+                "presets": [
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": "0.0012 in",
+                            "tool_feedPlunge": "50 inpm",
+                            "tool_feedRamp": "50 inpm",
+                            "tool_spindleSpeed": "11000 rpm"
+                        },
+                        "f_n": 0.004545454545454545,
+                        "f_z": 0.0012,
+                        "guid": "74a1bd54-a503-4aa9-8724-8449afa72b45",
+                        "material": {
+                            "category": "metal",
+                            "query": "Al Wrought - 6061+",
+                            "use-hardness": false
+                        },
+                        "n": 11000,
+                        "n_ramp": 11000,
+                        "name": "AL",
+                        "ramp-angle": 2,
+                        "stock-materials": [
+                            "Al Wrought - 6061+"
+                        ],
+                        "tool-coolant": "flood",
+                        "use-stepdown": false,
+                        "use-stepover": false,
+                        "v_c": 1079.9224746714915,
+                        "v_f": 66,
+                        "v_f_leadIn": 66,
+                        "v_f_leadOut": 66,
+                        "v_f_plunge": 50,
+                        "v_f_ramp": 50,
+                        "v_f_transition": 66
+                    },
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": ".0027  in",
+                            "tool_feedPlunge": "50 inpm",
+                            "tool_feedRamp": "50 inpm",
+                            "tool_surfaceSpeed": "525 fpm"
+                        },
+                        "f_n": 0.009349978135683903,
+                        "f_z": 0.002700000000000001,
+                        "guid": "77cd4d49-710d-41a8-98f8-ad965c5ac85e",
+                        "material": {
+                            "category": "metal",
+                            "query": "Steel Low Carbon - 1018",
+                            "use-hardness": false
+                        },
+                        "n": 5347.606087887685,
+                        "n_ramp": 5348,
+                        "name": "ST",
+                        "ramp-angle": 2,
+                        "stock-materials": [
+                            "Steel Low Carbon - 1018"
+                        ],
+                        "tool-coolant": "flood",
+                        "use-stepdown": false,
+                        "use-stepover": false,
+                        "v_c": 525.0000000000001,
+                        "v_f": 72.19268218648376,
+                        "v_f_leadIn": 72.19268218648376,
+                        "v_f_leadOut": 72.19268218648376,
+                        "v_f_plunge": 50,
+                        "v_f_ramp": 50,
+                        "v_f_transition": 72.19268218648376
+                    }
+                ]
+            },
+            "tool-block": null,
+            "type": "chamfer mill",
+            "unit": "inches",
+            "vendor": "LC-83"
+        },
+        {
+            "BMC": "carbide",
+            "GRADE": "Mill Generic",
+            "description": "1/8 Ø Bull .025R 3/16LOC 4FL",
+            "expressions": {
+                "holder_description": "'NBT30-SK13C-60'",
+                "tool_bodyLength": "0.5 in",
+                "tool_comment": "'FTL-978447'",
+                "tool_cornerRadius": ".025 in",
+                "tool_description": "'1/8 Ø Bull .025R 3/16LOC 4FL'",
+                "tool_diameter": ".125 in",
+                "tool_fluteLength": ".1875 in",
+                "tool_lengthOffset": "tool_number",
+                "tool_material": "'carbide'",
+                "tool_number": "62",
+                "tool_productId": "'A-212'",
+                "tool_shaftDiameter": ".125 in",
+                "tool_shoulderLength": ".1875 in",
+                "tool_vendor": "'LC-203'"
+            },
+            "geometry": {
+                "CSP": false,
+                "DC": 0.125,
+                "HAND": true,
+                "LB": 0.5,
+                "LCF": 0.1875,
+                "NOF": 4,
+                "NT": 1,
+                "OAL": 1.5,
+                "RE": 0.025,
+                "SFDM": 0.125,
+                "TA": 0,
+                "TP": 0,
+                "assemblyGaugeLength": 2.744055,
+                "shoulder-diameter": 0.125,
+                "shoulder-length": 0.1875,
+                "thread-profile-angle": 60,
+                "tip-diameter": 0,
+                "tip-length": 0,
+                "tip-offset": 0
+            },
+            "guid": "1001b998-4245-431f-92c1-3e1ce4bc4d5b",
+            "holder": {
+                "description": "NBT30-SK13C-60",
+                "gaugeLength": 2.244055,
+                "guid": "370a29ef-f349-4ecf-84e2-2a719139b58b",
+                "product-id": "",
+                "product-link": "",
+                "segments": [
+                    {
+                        "height": 1.3779527559055,
+                        "lower-diameter": 1.2992125984252,
+                        "upper-diameter": 1.2992125984252
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.7322834645669,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.13385826771654,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.13311023622047,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.25984251968504,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.7322834645669
+                    },
+                    {
+                        "height": 0.078740157480315,
+                        "lower-diameter": 1.25,
+                        "upper-diameter": 1.25
+                    }
+                ],
+                "type": "holder",
+                "unit": "inches",
+                "vendor": ""
+            },
+            "post-process": {
+                "break-control": false,
+                "comment": "FTL-978447",
+                "diameter-offset": 62,
+                "length-offset": 62,
+                "live": true,
+                "manual-tool-change": false,
+                "number": 62,
+                "turret": 0
+            },
+            "product-id": "A-212",
+            "product-link": "",
+            "start-values": {
+                "presets": [
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": ".0005 in",
+                            "tool_feedPlunge": "150 inpm",
+                            "tool_surfaceSpeed": "200 fpm"
+                        },
+                        "f_n": 0.024543692606170255,
+                        "f_z": 5e-04,
+                        "guid": "71955dbd-2d12-4d5f-a090-c51be61ce78c",
+                        "material": {
+                            "category": "all",
+                            "query": "",
+                            "use-hardness": false
+                        },
+                        "n": 6111.549814728782,
+                        "n_ramp": 6111.549814728782,
+                        "name": "4340 38RC",
+                        "ramp-angle": 2,
+                        "tool-coolant": "flood",
+                        "use-stepdown": false,
+                        "use-stepover": false,
+                        "v_c": 200.00000000000003,
+                        "v_f": 12.223099629457565,
+                        "v_f_leadIn": 12.223099629457565,
+                        "v_f_leadOut": 12.223099629457565,
+                        "v_f_plunge": 150,
+                        "v_f_ramp": 13.333333333333334,
+                        "v_f_transition": 12.223099629457565
+                    }
+                ]
+            },
+            "tool-block": null,
+            "type": "bull nose end mill",
+            "unit": "inches",
+            "vendor": "LC-203"
+        },
+        {
+            "BMC": "carbide",
+            "GRADE": "Mill Generic",
+            "description": "3/16\" EM 4FL .625\"LOC",
+            "expressions": {
+                "holder_description": "'NBT30-SK13C-60'",
+                "tool_bodyLength": "1 in",
+                "tool_comment": "'FTL-A30D04'",
+                "tool_description": "'3/16\" EM 4FL .625\"LOC'",
+                "tool_diameter": ".1875 in",
+                "tool_fluteLength": ".625 in",
+                "tool_lengthOffset": "tool_number",
+                "tool_material": "'carbide'",
+                "tool_number": "63",
+                "tool_overallLength": "2. in",
+                "tool_productId": "'A-199'",
+                "tool_productLink": "'https://americanprecisionworks.adionsystems.com/procnc/tools/A/A-199$'",
+                "tool_shaftDiameter": "((tool_type == 'reamer') ? (tool_diameter * 0.9) : ((tool_type == 'counter bore') ? (tool_diameter * 0.8) : ((tool_type == 'counter sink') ? (tool_diameter * 0.6) : ((tool_type == 'dovetail mill' || tool_type == 'lollipop mill' || tool_type == 'circle segment barrel') ? (tool_diameter * 0.5) : ((tool_type == 'slot mill') ? (tool_diameter / 3) : ((tool_type == 'face mill' || tool_type == 'radius mill' || tool_type == 'tapered mill') ? (tool_shoulderDiameter) : ((tool_type == 'probe') ? (4mm) : (tool_diameter))))))))",
+                "tool_shoulderLength": ".65 in",
+                "tool_vendor": "'LC-190'"
+            },
+            "geometry": {
+                "CSP": false,
+                "DC": 0.1875,
+                "HAND": true,
+                "LB": 1,
+                "LCF": 0.625,
+                "NOF": 4,
+                "NT": 1,
+                "OAL": 2,
+                "RE": 0,
+                "SFDM": 0.1875,
+                "TA": 0,
+                "TP": 0,
+                "assemblyGaugeLength": 3.244055,
+                "shoulder-diameter": 0.1875,
+                "shoulder-length": 0.65,
+                "thread-profile-angle": 60,
+                "tip-diameter": 0,
+                "tip-length": 0,
+                "tip-offset": 0
+            },
+            "guid": "60427eab-9515-4696-9697-6804be4eca63",
+            "holder": {
+                "description": "NBT30-SK13C-60",
+                "gaugeLength": 2.244055,
+                "guid": "370a29ef-f349-4ecf-84e2-2a719139b58b",
+                "product-id": "",
+                "product-link": "",
+                "segments": [
+                    {
+                        "height": 1.3779527559055,
+                        "lower-diameter": 1.2992125984252,
+                        "upper-diameter": 1.2992125984252
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.7322834645669,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.13385826771654,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.13311023622047,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.25984251968504,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.7322834645669
+                    },
+                    {
+                        "height": 0.078740157480315,
+                        "lower-diameter": 1.25,
+                        "upper-diameter": 1.25
+                    }
+                ],
+                "type": "holder",
+                "unit": "inches",
+                "vendor": ""
+            },
+            "post-process": {
+                "break-control": false,
+                "comment": "FTL-A30D04",
+                "diameter-offset": 63,
+                "length-offset": 63,
+                "live": true,
+                "manual-tool-change": false,
+                "number": 63,
+                "turret": 0
+            },
+            "product-id": "A-199",
+            "product-link": "https://americanprecisionworks.adionsystems.com/procnc/tools/A/A-199$",
+            "start-values": {
+                "presets": [
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": ".0007 in",
+                            "tool_feedPlunge": "15 inpm",
+                            "tool_feedRamp": "5 inpm",
+                            "tool_surfaceSpeed": "125 fpm"
+                        },
+                        "f_n": 0.005890486225480861,
+                        "f_z": 7e-04,
+                        "guid": "25299004-e11b-4a51-b91b-e14466036db2",
+                        "material": {
+                            "category": "metal",
+                            "query": "Steel Low Carbon - 1018",
+                            "use-hardness": false
+                        },
+                        "n": 2546.479089470326,
+                        "n_ramp": 2546.479089470326,
+                        "name": "ST",
+                        "ramp-angle": 2,
+                        "tool-coolant": "flood",
+                        "use-stepdown": false,
+                        "use-stepover": false,
+                        "v_c": 125.00000000000004,
+                        "v_f": 7.130141450516913,
+                        "v_f_leadIn": 7.130141450516913,
+                        "v_f_leadOut": 7.130141450516913,
+                        "v_f_plunge": 15,
+                        "v_f_ramp": 5,
+                        "v_f_transition": 7.130141450516913
+                    },
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": ".0005 in",
+                            "tool_feedPlunge": "15 inpm",
+                            "tool_feedRamp": "5 inpm",
+                            "tool_surfaceSpeed": "125 fpm"
+                        },
+                        "f_n": 0.005890486225480861,
+                        "f_z": 0.0005000000000000001,
+                        "guid": "a326c7b3-75e1-4b3a-be30-5c86e398bfaf",
+                        "material": {
+                            "category": "metal",
+                            "query": "Steel Low Carbon - 1018",
+                            "use-hardness": false
+                        },
+                        "n": 2546.479089470326,
+                        "n_ramp": 2546.479089470326,
+                        "name": "STEEL 1.000 30-SK13-150 - Finish",
+                        "ramp-angle": 2,
+                        "tool-coolant": "flood",
+                        "use-stepdown": false,
+                        "use-stepover": false,
+                        "v_c": 125.00000000000004,
+                        "v_f": 5.092958178940653,
+                        "v_f_leadIn": 5.092958178940653,
+                        "v_f_leadOut": 5.092958178940653,
+                        "v_f_plunge": 15,
+                        "v_f_ramp": 5,
+                        "v_f_transition": 5.092958178940653
+                    }
+                ]
+            },
+            "tool-block": null,
+            "type": "flat end mill",
+            "unit": "inches",
+            "vendor": "LC-190"
+        },
+        {
+            "BMC": "carbide",
+            "GRADE": "Mill Generic",
+            "description": "3/8 7FL Roughing EM",
+            "expressions": {
+                "holder_description": "'NBT30-SK13C-90 (85mm)'",
+                "tool_bodyLength": "1.2 in",
+                "tool_comment": "'FTL-EC1F8B'",
+                "tool_description": "'3/8 7FL Roughing EM'",
+                "tool_diameter": ".375 in",
+                "tool_fluteLength": "1 in",
+                "tool_lengthOffset": "tool_number",
+                "tool_material": "'carbide'",
+                "tool_number": "58",
+                "tool_numberOfFlutes": "7",
+                "tool_productId": "'A-61'",
+                "tool_productLink": "'https://americanprecisionworks.adionsystems.com/procnc/tools/A/A-61$'",
+                "tool_shoulderLength": "1.13 in",
+                "tool_vendor": "'LC-72'"
+            },
+            "geometry": {
+                "CSP": false,
+                "DC": 0.375,
+                "HAND": true,
+                "LB": 1.2,
+                "LCF": 1,
+                "NOF": 7,
+                "NT": 1,
+                "OAL": 1.5,
+                "RE": 0,
+                "SFDM": 0.375,
+                "TA": 0,
+                "TP": 0,
+                "assemblyGaugeLength": 4.546417,
+                "shoulder-diameter": 0.375,
+                "shoulder-length": 1.13,
+                "thread-profile-angle": 60,
+                "tip-diameter": 0,
+                "tip-length": 0,
+                "tip-offset": 0
+            },
+            "guid": "50312dc4-4b9f-4f9e-bbcb-2aa5f10fc56b",
+            "holder": {
+                "description": "NBT30-SK13C-90 (85mm)",
+                "gaugeLength": 3.346417,
+                "guid": "c8a9aa5f-8a66-4024-8467-5b68a20ae718",
+                "product-id": "HLD-C8EB24",
+                "product-link": "",
+                "segments": [
+                    {
+                        "height": 2.5590551181102,
+                        "lower-diameter": 1.2992125984252,
+                        "upper-diameter": 1.2992125984252
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.7322834645669,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.13385826771654,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.13311023622047,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.25984251968504,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.7322834645669
+                    },
+                    {
+                        "height": 0.078740157480315,
+                        "lower-diameter": 1.25,
+                        "upper-diameter": 1.25
+                    }
+                ],
+                "type": "holder",
+                "unit": "inches",
+                "vendor": ""
+            },
+            "post-process": {
+                "break-control": false,
+                "comment": "FTL-EC1F8B",
+                "diameter-offset": 58,
+                "length-offset": 58,
+                "live": true,
+                "manual-tool-change": false,
+                "number": 58,
+                "turret": 0
+            },
+            "product-id": "A-61",
+            "product-link": "https://americanprecisionworks.adionsystems.com/procnc/tools/A/A-61$",
+            "start-values": {
+                "presets": [
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": "0.0025 in",
+                            "tool_feedPlunge": "40 inpm",
+                            "tool_feedRamp": "20 inpm",
+                            "tool_presetMaterialCategory": "'metal'",
+                            "tool_presetMaterialQuery": "'SS'",
+                            "tool_stepdown": "tool_fluteLength * 0.4",
+                            "tool_stepover": "tool_diameter * 0.06",
+                            "tool_surfaceSpeed": "157.00000000000006 fpm"
+                        },
+                        "f_n": 0.025012680362976044,
+                        "f_z": 0.0025,
+                        "guid": "95a1abc0-599d-4eb7-8cdf-6bc8088ee516",
+                        "material": {
+                            "category": "metal",
+                            "query": "SS",
+                            "use-hardness": false
+                        },
+                        "n": 1599.1888681873654,
+                        "n_ramp": 1599.1888681873654,
+                        "name": "SS 1.200 30-SK13-90 (85mm) - Rough 2",
+                        "ramp-angle": 2,
+                        "stepdown": 0.4,
+                        "stepover": 0.022499999999999996,
+                        "stock-materials": [
+                            "SS Austenitic - 310, 316"
+                        ],
+                        "tool-coolant": "flood",
+                        "use-stepdown": true,
+                        "use-stepover": true,
+                        "v_c": 157.0000000000001,
+                        "v_f": 27.985805193278892,
+                        "v_f_leadIn": 27.985805193278892,
+                        "v_f_leadOut": 27.985805193278892,
+                        "v_f_plunge": 40,
+                        "v_f_ramp": 20,
+                        "v_f_transition": 27.985805193278892
+                    },
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": "0.0038 in",
+                            "tool_feedPlunge": "40 inpm",
+                            "tool_feedRamp": "20 inpm",
+                            "tool_presetMaterialCategory": "'metal'",
+                            "tool_presetMaterialQuery": "'SS'",
+                            "tool_stepdown": "tool_fluteLength * 0.5",
+                            "tool_stepover": "tool_diameter * 0.06",
+                            "tool_surfaceSpeed": "280.0000000000001 fpm"
+                        },
+                        "f_n": 0.014024967203525852,
+                        "f_z": 0.0037999999999999983,
+                        "guid": "5e02d40c-54ea-47d9-b248-3efc07347aef",
+                        "material": {
+                            "category": "metal",
+                            "query": "SS",
+                            "use-hardness": false
+                        },
+                        "n": 2852.0565802067667,
+                        "n_ramp": 2852.0565802067667,
+                        "name": "SS 1.200 30-SK13-90 (85mm) - Rough 6",
+                        "ramp-angle": 2,
+                        "stepdown": 0.49999999999999983,
+                        "stepover": 0.022499999999999996,
+                        "stock-materials": [
+                            "SS Austenitic - 310, 316"
+                        ],
+                        "tool-coolant": "flood",
+                        "use-stepdown": true,
+                        "use-stepover": true,
+                        "v_c": 280.0000000000002,
+                        "v_f": 75.86470503349997,
+                        "v_f_leadIn": 75.86470503349997,
+                        "v_f_leadOut": 75.86470503349997,
+                        "v_f_plunge": 40,
+                        "v_f_ramp": 20,
+                        "v_f_transition": 75.86470503349997
+                    },
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": "0.0035 in",
+                            "tool_feedPlunge": "40 inpm",
+                            "tool_feedRamp": "20 inpm",
+                            "tool_presetMaterialCategory": "'metal'",
+                            "tool_presetMaterialQuery": "'SS'",
+                            "tool_stepdown": "tool_fluteLength * 0.5",
+                            "tool_stepover": "tool_diameter * 0.08",
+                            "tool_surfaceSpeed": "345 fpm"
+                        },
+                        "f_n": 0.011382582078223886,
+                        "f_z": 0.0035,
+                        "guid": "26d0f5e0-cfc8-47b2-84de-14422b3c514b",
+                        "material": {
+                            "category": "metal",
+                            "query": "SS",
+                            "use-hardness": false
+                        },
+                        "n": 3514.14114346905,
+                        "n_ramp": 3514.14114346905,
+                        "name": "SS 1.200 30-SK13-150 - Rough",
+                        "ramp-angle": 2,
+                        "stepdown": 0.49999999999999983,
+                        "stepover": 0.029999999999999992,
+                        "stock-materials": [
+                            "SS Austenitic - 310, 316"
+                        ],
+                        "tool-coolant": "flood",
+                        "use-stepdown": true,
+                        "use-stepover": true,
+                        "v_c": 345.00000000000006,
+                        "v_f": 86.09645801499173,
+                        "v_f_leadIn": 86.09645801499173,
+                        "v_f_leadOut": 86.09645801499173,
+                        "v_f_plunge": 40,
+                        "v_f_ramp": 20,
+                        "v_f_transition": 86.09645801499173
+                    },
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": "0.002 in",
+                            "tool_feedPlunge": "40 inpm",
+                            "tool_feedRamp": "20 inpm",
+                            "tool_presetMaterialCategory": "'metal'",
+                            "tool_presetMaterialQuery": "'SS'",
+                            "tool_stepdown": "tool_fluteLength * 0.25",
+                            "tool_stepover": "tool_diameter * 0.05",
+                            "tool_surfaceSpeed": "300 fpm"
+                        },
+                        "f_n": 0.013089969389957467,
+                        "f_z": 0.0019999999999999996,
+                        "guid": "78341a99-9f66-40d5-9cfa-5e57045a2130",
+                        "material": {
+                            "category": "metal",
+                            "query": "SS",
+                            "use-hardness": false
+                        },
+                        "n": 3055.7749073643913,
+                        "n_ramp": 3055.7749073643913,
+                        "name": "SS 1.200 30-SK13-150 - Rough 2",
+                        "ramp-angle": 2,
+                        "stepdown": 0.24999999999999992,
+                        "stepover": 0.01875,
+                        "stock-materials": [
+                            "SS Austenitic - 310, 316"
+                        ],
+                        "tool-coolant": "flood",
+                        "use-stepdown": true,
+                        "use-stepover": true,
+                        "v_c": 300.00000000000006,
+                        "v_f": 42.78084870310147,
+                        "v_f_leadIn": 42.78084870310147,
+                        "v_f_leadOut": 42.78084870310147,
+                        "v_f_plunge": 40,
+                        "v_f_ramp": 20,
+                        "v_f_transition": 42.78084870310147
+                    }
+                ]
+            },
+            "tool-block": null,
+            "type": "flat end mill",
+            "unit": "inches",
+            "vendor": "LC-72"
+        },
+        {
+            "BMC": "carbide",
+            "GRADE": "Mill Generic",
+            "description": "1/8Ø Endmill 3fL .4375LOC Uncoated",
+            "expressions": {
+                "holder_description": "'NBT30-SK13C-90 (85mm)'",
+                "tool_bodyLength": ".6 in",
+                "tool_comment": "'FTL-B922F8'",
+                "tool_description": "'1/8Ø Endmill 3fL .4375LOC Uncoated'",
+                "tool_diameter": ".125 in",
+                "tool_fluteLength": "(7/16) in",
+                "tool_lengthOffset": "tool_number",
+                "tool_material": "'carbide'",
+                "tool_number": "64",
+                "tool_numberOfFlutes": "3",
+                "tool_productId": "'A-176'",
+                "tool_shoulderLength": "(7/16) in",
+                "tool_vendor": "'LC-169'"
+            },
+            "geometry": {
+                "CSP": false,
+                "DC": 0.125,
+                "HAND": true,
+                "LB": 0.6,
+                "LCF": 0.4375,
+                "NOF": 3,
+                "NT": 1,
+                "OAL": 1.5,
+                "RE": 0,
+                "SFDM": 0.125,
+                "TA": 0,
+                "TP": 0,
+                "assemblyGaugeLength": 3.946417,
+                "shoulder-diameter": 0.125,
+                "shoulder-length": 0.4375,
+                "thread-profile-angle": 60,
+                "tip-diameter": 0,
+                "tip-length": 0,
+                "tip-offset": 0
+            },
+            "guid": "7083680b-2904-42eb-a487-9695024dee98",
+            "holder": {
+                "description": "NBT30-SK13C-90 (85mm)",
+                "gaugeLength": 3.346417,
+                "guid": "c8a9aa5f-8a66-4024-8467-5b68a20ae718",
+                "product-id": "HLD-C8EB24",
+                "product-link": "",
+                "segments": [
+                    {
+                        "height": 2.5590551181102,
+                        "lower-diameter": 1.2992125984252,
+                        "upper-diameter": 1.2992125984252
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.7322834645669,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.13385826771654,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.13311023622047,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.25984251968504,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.7322834645669
+                    },
+                    {
+                        "height": 0.078740157480315,
+                        "lower-diameter": 1.25,
+                        "upper-diameter": 1.25
+                    }
+                ],
+                "type": "holder",
+                "unit": "inches",
+                "vendor": ""
+            },
+            "post-process": {
+                "break-control": false,
+                "comment": "FTL-B922F8",
+                "diameter-offset": 64,
+                "length-offset": 64,
+                "live": true,
+                "manual-tool-change": false,
+                "number": 64,
+                "turret": 0
+            },
+            "product-id": "A-176",
+            "product-link": "",
+            "start-values": {
+                "presets": [
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedCutting": "30 in/min",
+                            "tool_feedPlunge": "50 inpm",
+                            "tool_feedRamp": "20 inpm",
+                            "tool_spindleSpeed": "16000 rpm"
+                        },
+                        "f_n": 0.003125,
+                        "f_z": 0.000625,
+                        "guid": "d6d2ee63-4a06-4979-8ef9-42dad223704c",
+                        "material": {
+                            "category": "metal",
+                            "query": "Al Wrought - 6061+",
+                            "use-hardness": false
+                        },
+                        "n": 16000,
+                        "n_ramp": 16000,
+                        "name": "AL",
+                        "ramp-angle": 2,
+                        "tool-coolant": "flood",
+                        "use-stepdown": false,
+                        "use-stepover": false,
+                        "v_c": 523.5987755982989,
+                        "v_f": 30,
+                        "v_f_leadIn": 30,
+                        "v_f_leadOut": 30,
+                        "v_f_plunge": 50,
+                        "v_f_ramp": 20,
+                        "v_f_transition": 30
+                    },
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedCutting": "15 inpm",
+                            "tool_feedPlunge": "50 inpm",
+                            "tool_feedRamp": "20 inpm",
+                            "tool_spindleSpeed": "16000 rpm"
+                        },
+                        "f_n": 0.003125,
+                        "f_z": 0.0003125,
+                        "guid": "e40ca29f-1bbe-47af-8677-708202605b69",
+                        "material": {
+                            "category": "metal",
+                            "query": "Al Wrought - 6061+",
+                            "use-hardness": false
+                        },
+                        "n": 16000,
+                        "n_ramp": 16000,
+                        "name": "AL 0.750 30-SK13-90 (85mm) - Finish",
+                        "ramp-angle": 2,
+                        "tool-coolant": "flood",
+                        "use-stepdown": false,
+                        "use-stepover": false,
+                        "v_c": 523.5987755982989,
+                        "v_f": 15,
+                        "v_f_leadIn": 15,
+                        "v_f_leadOut": 15,
+                        "v_f_plunge": 50,
+                        "v_f_ramp": 20,
+                        "v_f_transition": 15
+                    },
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPlunge": "50 inpm",
+                            "tool_feedRamp": "20 inpm",
+                            "tool_spindleSpeed": "16000 rpm"
+                        },
+                        "f_n": 0.003125,
+                        "f_z": 0.0008333333333333334,
+                        "guid": "075e841a-3826-4724-9111-cc6bc57e06a2",
+                        "material": {
+                            "category": "metal",
+                            "query": "Al Wrought - 6061+",
+                            "use-hardness": false
+                        },
+                        "n": 16000,
+                        "n_ramp": 16000,
+                        "name": "Default preset",
+                        "ramp-angle": 2,
+                        "tool-coolant": "flood",
+                        "use-stepdown": false,
+                        "use-stepover": false,
+                        "v_c": 523.5987755982989,
+                        "v_f": 40,
+                        "v_f_leadIn": 40,
+                        "v_f_leadOut": 40,
+                        "v_f_plunge": 50,
+                        "v_f_ramp": 20,
+                        "v_f_transition": 40
+                    }
+                ]
+            },
+            "tool-block": null,
+            "type": "flat end mill",
+            "unit": "inches",
+            "vendor": "LC-169"
+        },
+        {
+            "BMC": "carbide",
+            "description": "Blum TC52/TC62 Styli 3mm x 50mm",
+            "expressions": {
+                "holder_description": "'Blum TC52/TC62 with BT30 - BTH 25'",
+                "holder_vendor": "'Blum'",
+                "tool_bodyLength": "51.5 mm",
+                "tool_comment": "'FTL-ECB416'",
+                "tool_description": "'Blum TC52/TC62 Styli 3mm x 50mm'",
+                "tool_diameter": "3. mm",
+                "tool_lengthOffset": "tool_number",
+                "tool_material": "'carbide'",
+                "tool_number": "99",
+                "tool_productId": "'S-271'",
+                "tool_shaftDiameter": "2. mm"
+            },
+            "geometry": {
+                "CSP": false,
+                "DC": 3,
+                "HAND": true,
+                "LB": 51.5,
+                "LCF": 6,
+                "NOF": 0,
+                "NT": 1,
+                "OAL": 51.5,
+                "RE": 1.5,
+                "SFDM": 2,
+                "TA": 0,
+                "TP": 0,
+                "assemblyGaugeLength": 136.63,
+                "shoulder-length": 6,
+                "thread-profile-angle": 60,
+                "tip-diameter": 0,
+                "tip-length": 0,
+                "tip-offset": 0
+            },
+            "guid": "b553b4b4-6dbe-4744-882f-b9f903f84074",
+            "holder": {
+                "description": "Blum TC52/TC62 with BT30 - BTH 25",
+                "gaugeLength": 85.13,
+                "guid": "313010b9-22d3-4df9-94ca-bf0b3b25a48d",
+                "product-id": "TC52 (142174); TC62 (142892)",
+                "product-link": "",
+                "segments": [
+                    {
+                        "height": 0.2,
+                        "lower-diameter": 7.035,
+                        "upper-diameter": 7.435
+                    },
+                    {
+                        "height": 0.2,
+                        "lower-diameter": 7.515,
+                        "upper-diameter": 7.59
+                    },
+                    {
+                        "height": 0.26,
+                        "lower-diameter": 7.59,
+                        "upper-diameter": 7.68
+                    },
+                    {
+                        "height": 0.26,
+                        "lower-diameter": 7.68,
+                        "upper-diameter": 7.68
+                    },
+                    {
+                        "height": 0.07,
+                        "lower-diameter": 7.68,
+                        "upper-diameter": 7.593
+                    },
+                    {
+                        "height": 1.24,
+                        "lower-diameter": 8.535,
+                        "upper-diameter": 11.015
+                    },
+                    {
+                        "height": 0.98,
+                        "lower-diameter": 11.015,
+                        "upper-diameter": 11.02
+                    },
+                    {
+                        "height": 0.22,
+                        "lower-diameter": 25.035,
+                        "upper-diameter": 25.582
+                    },
+                    {
+                        "height": 0.36,
+                        "lower-diameter": 25.582,
+                        "upper-diameter": 25.917
+                    },
+                    {
+                        "height": 0.14,
+                        "lower-diameter": 36.631,
+                        "upper-diameter": 36.871
+                    },
+                    {
+                        "height": 0.12,
+                        "lower-diameter": 36.913,
+                        "upper-diameter": 37.025
+                    },
+                    {
+                        "height": 0.28,
+                        "lower-diameter": 37.025,
+                        "upper-diameter": 37.286
+                    },
+                    {
+                        "height": 0.09,
+                        "lower-diameter": 37.407,
+                        "upper-diameter": 37.491
+                    },
+                    {
+                        "height": 0.16,
+                        "lower-diameter": 37.491,
+                        "upper-diameter": 37.64
+                    },
+                    {
+                        "height": 1.61,
+                        "lower-diameter": 37.64,
+                        "upper-diameter": 39.142
+                    },
+                    {
+                        "height": 0.15,
+                        "lower-diameter": 39.142,
+                        "upper-diameter": 39.282
+                    },
+                    {
+                        "height": 0.45,
+                        "lower-diameter": 39.282,
+                        "upper-diameter": 39.7
+                    },
+                    {
+                        "height": 0.23,
+                        "lower-diameter": 39.7,
+                        "upper-diameter": 39.698
+                    },
+                    {
+                        "height": 0.17,
+                        "lower-diameter": 39.698,
+                        "upper-diameter": 39.584
+                    },
+                    {
+                        "height": 0.43,
+                        "lower-diameter": 39.584,
+                        "upper-diameter": 39.72
+                    },
+                    {
+                        "height": 11.18,
+                        "lower-diameter": 39.72,
+                        "upper-diameter": 39.72
+                    },
+                    {
+                        "height": 1.55,
+                        "lower-diameter": 39.97,
+                        "upper-diameter": 39.97
+                    },
+                    {
+                        "height": 0.14,
+                        "lower-diameter": 39.44,
+                        "upper-diameter": 39.72
+                    },
+                    {
+                        "height": 11.7,
+                        "lower-diameter": 39.72,
+                        "upper-diameter": 39.72
+                    },
+                    {
+                        "height": 0.14,
+                        "lower-diameter": 39.72,
+                        "upper-diameter": 39.44
+                    },
+                    {
+                        "height": 24.65,
+                        "lower-diameter": 40.02,
+                        "upper-diameter": 40.02
+                    },
+                    {
+                        "height": 0.09,
+                        "lower-diameter": 39.99,
+                        "upper-diameter": 40.17
+                    },
+                    {
+                        "height": 0.45,
+                        "lower-diameter": 40.17,
+                        "upper-diameter": 40.17
+                    },
+                    {
+                        "height": 0.52,
+                        "lower-diameter": 40.169,
+                        "upper-diameter": 40.118
+                    },
+                    {
+                        "height": 0.59,
+                        "lower-diameter": 40.115,
+                        "upper-diameter": 40.092
+                    },
+                    {
+                        "height": 0.1,
+                        "lower-diameter": 40.092,
+                        "upper-diameter": 40.092
+                    },
+                    {
+                        "height": 0.34,
+                        "lower-diameter": 40.092,
+                        "upper-diameter": 40.098
+                    },
+                    {
+                        "height": 1.45,
+                        "lower-diameter": 40.102,
+                        "upper-diameter": 40.17
+                    },
+                    {
+                        "height": 0.68,
+                        "lower-diameter": 40.17,
+                        "upper-diameter": 40.17
+                    },
+                    {
+                        "height": 0.14,
+                        "lower-diameter": 40.07,
+                        "upper-diameter": 39.79
+                    },
+                    {
+                        "height": 1.99,
+                        "lower-diameter": 25.02,
+                        "upper-diameter": 25.02
+                    },
+                    {
+                        "height": 2.09,
+                        "lower-diameter": 46.02,
+                        "upper-diameter": 46.02
+                    },
+                    {
+                        "height": 2.26,
+                        "lower-diameter": 46.02,
+                        "upper-diameter": 38.055
+                    },
+                    {
+                        "height": 4,
+                        "lower-diameter": 38.02,
+                        "upper-diameter": 38.02
+                    },
+                    {
+                        "height": 2.17,
+                        "lower-diameter": 38.055,
+                        "upper-diameter": 46.02
+                    },
+                    {
+                        "height": 9.29,
+                        "lower-diameter": 46.02,
+                        "upper-diameter": 46.02
+                    },
+                    {
+                        "height": 1.99,
+                        "lower-diameter": 30.176,
+                        "upper-diameter": 30.176
+                    }
+                ],
+                "type": "holder",
+                "unit": "millimeters",
+                "vendor": "Blum"
+            },
+            "post-process": {
+                "break-control": false,
+                "comment": "FTL-ECB416",
+                "diameter-offset": 99,
+                "length-offset": 99,
+                "live": false,
+                "manual-tool-change": false,
+                "number": 99,
+                "turret": 0
+            },
+            "product-id": "S-271",
+            "product-link": "https://www.blum-novotest.com/in/products/measuring-components/workpiece-probes/tc50-tc60/",
+            "start-values": {
+                "presets": [
+                    {
+                        "description": "",
+                        "guid": "12d2e99e-d633-47ef-aa20-ef73aaf9fc4d",
+                        "name": "Default preset",
+                        "v_f_leadIn": 1000,
+                        "v_f_link": 3000,
+                        "v_f_measure": 102
+                    }
+                ]
+            },
+            "tool-block": null,
+            "type": "probe",
+            "unit": "millimeters",
+            "vendor": "Blum"
+        },
+        {
+            "BMC": "carbide",
+            "GRADE": "Mill Generic",
+            "description": "1/8 Ø Bull .025R 3/16LOC 4FL",
+            "expressions": {
+                "holder_description": "'NBT30-SK13C-60'",
+                "tool_bodyLength": ".8 in",
+                "tool_comment": "'FTL-978447'",
+                "tool_cornerRadius": ".025 in",
+                "tool_description": "'1/8 Ø Bull .025R 3/16LOC 4FL'",
+                "tool_diameter": ".125 in",
+                "tool_fluteLength": ".1875 in",
+                "tool_lengthOffset": "tool_number",
+                "tool_material": "'carbide'",
+                "tool_number": "65",
+                "tool_productId": "'A-212'",
+                "tool_shaftDiameter": ".125 in",
+                "tool_shoulderLength": ".1875 in",
+                "tool_vendor": "'LC-203'"
+            },
+            "geometry": {
+                "CSP": false,
+                "DC": 0.125,
+                "HAND": true,
+                "LB": 0.8,
+                "LCF": 0.1875,
+                "NOF": 4,
+                "NT": 1,
+                "OAL": 1.5,
+                "RE": 0.025,
+                "SFDM": 0.125,
+                "TA": 0,
+                "TP": 0,
+                "assemblyGaugeLength": 3.044055,
+                "shoulder-diameter": 0.125,
+                "shoulder-length": 0.1875,
+                "thread-profile-angle": 60,
+                "tip-diameter": 0,
+                "tip-length": 0,
+                "tip-offset": 0
+            },
+            "guid": "45324d9f-d434-41d9-ab0b-59a02732405d",
+            "holder": {
+                "description": "NBT30-SK13C-60",
+                "gaugeLength": 2.244055,
+                "guid": "370a29ef-f349-4ecf-84e2-2a719139b58b",
+                "product-id": "",
+                "product-link": "",
+                "segments": [
+                    {
+                        "height": 1.3779527559055,
+                        "lower-diameter": 1.2992125984252,
+                        "upper-diameter": 1.2992125984252
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.7322834645669,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.13385826771654,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.13311023622047,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.496062992126
+                    },
+                    {
+                        "height": 0.090905511811024,
+                        "lower-diameter": 1.496062992126,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.25984251968504,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.8110236220472
+                    },
+                    {
+                        "height": 0.039370078740157,
+                        "lower-diameter": 1.8110236220472,
+                        "upper-diameter": 1.7322834645669
+                    },
+                    {
+                        "height": 0.078740157480315,
+                        "lower-diameter": 1.25,
+                        "upper-diameter": 1.25
+                    }
+                ],
+                "type": "holder",
+                "unit": "inches",
+                "vendor": ""
+            },
+            "post-process": {
+                "break-control": false,
+                "comment": "FTL-978447",
+                "diameter-offset": 65,
+                "length-offset": 65,
+                "live": true,
+                "manual-tool-change": false,
+                "number": 65,
+                "turret": 0
+            },
+            "product-id": "A-212",
+            "product-link": "",
+            "start-values": {
+                "presets": [
+                    {
+                        "description": "",
+                        "expressions": {
+                            "tool_feedPerTooth": ".0005 in",
+                            "tool_feedPlunge": "150 inpm",
+                            "tool_surfaceSpeed": "200 fpm"
+                        },
+                        "f_n": 0.024543692606170255,
+                        "f_z": 5e-04,
+                        "guid": "71955dbd-2d12-4d5f-a090-c51be61ce78c",
+                        "material": {
+                            "category": "all",
+                            "query": "",
+                            "use-hardness": false
+                        },
+                        "n": 6111.549814728782,
+                        "n_ramp": 6111.549814728782,
+                        "name": "4340 38RC",
+                        "ramp-angle": 2,
+                        "tool-coolant": "flood",
+                        "use-stepdown": false,
+                        "use-stepover": false,
+                        "v_c": 200.00000000000003,
+                        "v_f": 12.223099629457565,
+                        "v_f_leadIn": 12.223099629457565,
+                        "v_f_leadOut": 12.223099629457565,
+                        "v_f_plunge": 150,
+                        "v_f_ramp": 13.333333333333334,
+                        "v_f_transition": 12.223099629457565
+                    }
+                ]
+            },
+            "tool-block": null,
+            "type": "bull nose end mill",
+            "unit": "inches",
+            "vendor": "LC-203"
+        }
+    ],
+    "version": 37
+}

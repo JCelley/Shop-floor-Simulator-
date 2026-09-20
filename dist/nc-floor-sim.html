@@ -1,0 +1,1726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NC Floor Sim (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<style>
+:root {
+  --font: "Barlow Semi Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --bg: #e6ebf0;
+  --panel: #f6f8fa;
+  --panel2: #ffffff;
+  --ink: #141920;
+  --muted: #55606b;
+  --line: #c8d1da;
+  --accent: #f2b705;
+  --accent-ink: #1a1400;
+  --focus: #1a5fd0;
+  --vp-a: #f7f9fb;
+  --vp-b: #c5d1dd;
+  --blue: #3d7bff;
+  --green: #35c463;
+  --code-cur: rgba(242, 183, 5, .28);
+  --shadow: 0 6px 24px rgba(10, 20, 30, .18);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1014; --panel: #141a20; --panel2: #1b222b; --ink: #e8edf2; --muted: #8e9aa6; --line: #28313b;
+    --focus: #7db0ff; --vp-a: #202a35; --vp-b: #0a0e12; --code-cur: rgba(242, 183, 5, .22);
+    --shadow: 0 6px 24px rgba(0, 0, 0, .5); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1014; --panel: #141a20; --panel2: #1b222b; --ink: #e8edf2; --muted: #8e9aa6; --line: #28313b;
+  --focus: #7db0ff; --vp-a: #202a35; --vp-b: #0a0e12; --code-cur: rgba(242, 183, 5, .22);
+  --shadow: 0 6px 24px rgba(0, 0, 0, .5); color-scheme: dark;
+}
+
+:root {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+html { scroll-padding-top: env(safe-area-inset-top, 0px); height: 100%; }
+*, *::before, *::after { box-sizing: inherit; }
+body {
+  margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+  font: 500 15px/1.35 var(--font); overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+.app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+
+/* ---------- top bar ---------- */
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.title strong { font-size: 22px; font-weight: 700; letter-spacing: .01em; }
+.tag { font-size: 13px; color: var(--muted); border: 1px solid var(--line); padding: 0 7px; border-radius: 3px; }
+.fname { color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30vw; }
+.bar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.btn, .sel {
+  min-height: 40px; padding: 0 14px; border: 1px solid var(--line); background: var(--panel2);
+  border-radius: 6px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+}
+.btn:hover, .sel:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.btn.icon { padding: 0; width: 44px; justify-content: center; }
+.btn svg { width: 20px; height: 20px; fill: currentColor; }
+
+/* ---------- layout ---------- */
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 372px; min-height: 0; }
+.viewport { position: relative; min-height: 0; overflow: hidden; background: radial-gradient(120% 100% at 50% 30%, var(--vp-a), var(--vp-b)); touch-action: none; }
+.viewport canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+.viewport canvas:active { cursor: grabbing; }
+.side { overflow-y: auto; background: var(--panel); border-left: 1px solid var(--line); min-height: 0; }
+
+/* ---------- viewport overlays ---------- */
+.vp-top { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; gap: 10px; pointer-events: none; flex-wrap: wrap; }
+.seg { display: inline-flex; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; pointer-events: auto; box-shadow: var(--shadow); }
+.seg button { min-height: 36px; padding: 0 13px; border: 0; background: transparent; font-weight: 600; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.legend { position: absolute; left: 10px; top: 58px; display: flex; flex-direction: column; gap: 5px; font-size: 14px; background: color-mix(in srgb, var(--panel2) 88%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; max-width: 250px; }
+.legend div { display: flex; align-items: center; gap: 8px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; flex: none; border: 1px solid rgba(0, 0, 0, .25); }
+.chips { position: absolute; left: 10px; bottom: 10px; right: 10px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
+.chip { font: 500 13px/1 var(--mono); padding: 6px 8px; background: var(--panel2); background: color-mix(in srgb, var(--panel2) 88%, transparent); border: 1px solid var(--line); border-radius: 4px; color: var(--muted); }
+.chip.warn { color: var(--accent-ink); background: var(--accent); border-color: transparent; }
+.probe { position: absolute; z-index: 5; width: 270px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 12px; box-shadow: var(--shadow); }
+.probe h3 { margin: 0 0 4px; font-size: 18px; }
+.probe p { margin: 0 0 8px; color: var(--muted); font-size: 14px; }
+.probe .row { display: flex; gap: 8px; }
+.busy, .fatal { position: absolute; inset: 0; z-index: 6; display: grid; place-content: center; text-align: center; gap: 12px; background: var(--bg); background: color-mix(in srgb, var(--bg) 80%, transparent); font-size: 18px; padding: 24px; }
+.bar-track { width: min(320px, 70vw); height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 0 auto; }
+.bar-fill { height: 100%; width: 0; background: var(--accent); }
+
+/* ---------- side panel ---------- */
+.side section, .side details { border-bottom: 1px solid var(--line); }
+.side h2 { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: var(--muted); }
+.now { padding: 14px; }
+.now-head { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
+.tnum { font: 700 68px/.85 var(--font); letter-spacing: -.02em; min-width: 1.4ch; }
+.tname { font-size: 19px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
+.tdims { color: var(--muted); font-size: 14px; }
+.tsvg { width: 58px; height: 106px; }
+.reads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.read { border: 1px solid var(--line); background: var(--panel2); padding: 6px 8px; border-radius: 4px; min-width: 0; }
+.read span { display: block; font-size: 13px; color: var(--muted); }
+.read b { font: 600 20px/1.15 var(--mono); }
+.opnow { margin-top: 12px; font-size: 18px; font-weight: 700; line-height: 1.2; }
+.opsub { color: var(--muted); font-size: 14px; }
+.xyz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; font: 600 17px var(--mono); }
+.xyz span { color: var(--muted); font-weight: 500; margin-right: 4px; }
+.code { padding: 10px 14px 12px; }
+.codebox { font: 500 13.5px/1.55 var(--mono); background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; height: 12.4em; overflow: hidden; }
+.ln { display: grid; grid-template-columns: 4.2ch 1fr; gap: 8px; padding: 0 8px; white-space: pre; overflow: hidden; }
+.ln i { font-style: normal; color: var(--muted); text-align: right; }
+.ln.cur { background: var(--code-cur); font-weight: 700; }
+.opsec { padding: 10px 0 6px; }
+.opsec h2 { padding: 0 14px; }
+#ops { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
+#ops button { width: 100%; display: grid; grid-template-columns: 14px 3.2ch 1fr; gap: 10px; align-items: center; text-align: left; padding: 8px 14px; border: 0; border-left: 4px solid transparent; background: transparent; cursor: pointer; min-height: 42px; }
+#ops button:hover { background: var(--panel2); }
+#ops button[aria-current="true"] { background: var(--panel2); border-left-color: var(--accent); font-weight: 700; }
+#ops .t { font: 600 14px var(--mono); color: var(--muted); }
+summary { cursor: pointer; padding: 12px 14px; font-weight: 700; font-size: 16px; min-height: 44px; }
+.pad { padding: 0 14px 14px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+label.f { display: grid; gap: 3px; font-size: 13.5px; color: var(--muted); }
+label.f input, label.f select { min-height: 36px; border: 1px solid var(--line); background: var(--panel2); border-radius: 4px; padding: 0 8px; color: var(--ink); font: 500 15px var(--mono); width: 100%; }
+label.f select { font-family: var(--font); }
+.tool-card { border: 1px solid var(--line); background: var(--panel2); padding: 10px; border-radius: 6px; margin-bottom: 10px; }
+.tool-card h4 { margin: 0 0 8px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.note { color: var(--muted); font-size: 13.5px; margin: 8px 0 0; }
+.warns { color: var(--muted); font-size: 13.5px; padding: 0 14px 10px; }
+.warns:empty { display: none; }
+.warns b { color: var(--ink); }
+
+/* ---------- transport ---------- */
+.transport { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 14px; align-items: center; padding: 8px 14px; background: var(--panel); border-top: 1px solid var(--line); }
+.tbtns { display: flex; gap: 8px; }
+.tbtns .btn { width: 48px; padding: 0; justify-content: center; }
+.tbtns .play { width: 64px; }
+.scrubwrap { position: relative; height: 44px; }
+.ticks { position: absolute; left: 8px; right: 8px; top: 2px; height: 14px; pointer-events: none; }
+.tick { position: absolute; top: 0; width: 3px; height: 14px; margin-left: -1px; border-radius: 1px; }
+#scrub { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 26px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.time { font: 600 18px var(--mono); min-width: 9.5ch; text-align: right; }
+.speed { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.speed .sel { color: var(--ink); }
+
+#toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 6px; max-width: min(560px, 92vw); z-index: 20; font-weight: 600; box-shadow: var(--shadow); }
+.drop { outline: 3px dashed var(--accent); outline-offset: -8px; }
+
+@media (max-width: 980px) {
+  .main { grid-template-columns: 1fr; grid-template-rows: minmax(0, 56%) minmax(0, 44%); }
+  .side { border-left: 0; border-top: 1px solid var(--line); }
+  .transport { grid-template-columns: auto minmax(0, 1fr); }
+  .time, .speed { grid-row: 2; }
+  .fname { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="title"><strong>Floor Sim</strong><span class="tag">prototype</span><span class="fname" id="fname"></span></div>
+    <div class="bar-actions">
+      <label class="btn primary" for="fileProg" title="Pick the job file (.floorsim.json) made by the Fusion add-in">Open job file</label>
+      <input id="fileProg" type="file" multiple hidden>
+      <label class="btn" for="fileLib">Tool library</label>
+      <input id="fileLib" type="file" multiple hidden>
+      <select id="demoSel" class="sel" aria-label="Load a sample program">
+        <option value="">Samples</option>
+        <option value="demo">Demo: pocket, drill, chamfer, groove</option>
+        <option value="stress">Stress test: 38k-move 3D surface</option>
+      </select>
+      <button id="themeBtn" class="btn icon" aria-label="Switch light or dark theme" title="Light / dark">
+        <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18V3z"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="main">
+    <section class="viewport" id="vp" aria-label="3D simulation view">
+      <div class="vp-top">
+        <div class="seg" role="group" aria-label="Colour mode">
+          <button type="button" data-mode="progress" aria-pressed="true">Progress</button>
+          <button type="button" data-mode="tool" aria-pressed="false">By tool</button>
+        </div>
+        <div class="seg" role="group" aria-label="Camera">
+          <button type="button" data-view="iso">Iso</button>
+          <button type="button" data-view="top">Top</button>
+          <button type="button" data-view="front">Front</button>
+          <button type="button" data-view="fit">Fit</button>
+        </div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="chips" id="chips"></div>
+      <div class="probe" id="probe" hidden></div>
+      <div class="busy" id="busy" hidden>
+        <div id="busyTxt">Preparing simulation</div>
+        <div class="bar-track"><div class="bar-fill" id="busyBar"></div></div>
+      </div>
+      <div class="fatal" id="fatal" hidden>
+        <div><b>The 3D viewer could not start.</b><br><span id="fatalTxt">This page needs WebGL and the three.js library.</span></div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="now" aria-live="off">
+        <div class="now-head">
+          <div class="tnum" id="tNo">T1</div>
+          <div>
+            <div class="tname" id="tName">No program loaded</div>
+            <div class="tdims" id="tDims"></div>
+          </div>
+          <svg class="tsvg" id="tSvg" viewBox="0 0 58 106" aria-hidden="true"></svg>
+        </div>
+        <div class="reads">
+          <div class="read"><span>Spindle rpm</span><b id="rSpin">0</b></div>
+          <div class="read"><span id="rFeedL">Feed mm/min</span><b id="rFeed">0</b></div>
+          <div class="read"><span>Coolant</span><b id="rCool">Off</b></div>
+        </div>
+        <div class="opnow" id="opNow"></div>
+        <div class="opsub" id="opSub"></div>
+        <div class="xyz"><div><span>X</span><b id="pX">0.000</b></div><div><span>Y</span><b id="pY">0.000</b></div><div><span>Z</span><b id="pZ">0.000</b></div></div>
+      </section>
+
+      <section class="code">
+        <h2>G-code</h2>
+        <div class="codebox" id="code"></div>
+      </section>
+
+      <section class="opsec">
+        <h2>Operations</h2>
+        <ol id="ops"></ol>
+      </section>
+      <div class="warns" id="warns"></div>
+
+      <details>
+        <summary>Stock and resolution</summary>
+        <div class="pad">
+          <div class="grid2">
+            <label class="f">X min<input id="sxmin" type="number" step="0.1"></label>
+            <label class="f">X max<input id="sxmax" type="number" step="0.1"></label>
+            <label class="f">Y min<input id="symin" type="number" step="0.1"></label>
+            <label class="f">Y max<input id="symax" type="number" step="0.1"></label>
+            <label class="f">Z bottom<input id="szbot" type="number" step="0.1"></label>
+            <label class="f">Z top<input id="sztop" type="number" step="0.1"></label>
+          </div>
+          <div class="grid2" style="margin-top:10px">
+            <label class="f">Program units
+              <select id="unitSel"><option value="auto">Auto</option><option value="inch">Inches</option><option value="mm">Millimetres</option></select>
+            </label>
+            <label class="f">Grid resolution
+              <select id="resSel">
+                <option value="200">Draft, 200 cells</option>
+                <option value="280">Fast, 280 cells</option>
+                <option value="360" selected>Balanced, 360 cells</option>
+                <option value="520">Fine, 520 cells</option>
+                <option value="800">Ultra, 800 cells</option>
+              </select>
+            </label>
+            <div style="display:flex;align-items:end"><button class="btn primary" id="applyStock" type="button">Apply stock</button></div>
+          </div>
+          <p class="note">Stock box in program coordinates, shown in mm. Size comes from the setup-sheet CSV when there is one; its position is a guess from the toolpath until the Fusion setup supplies it.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Tools and holders</summary>
+        <div class="pad">
+          <div id="toolCards"></div>
+          <button class="btn primary" id="applyTools" type="button">Apply tool changes</button>
+          <p class="note">Sizes come from the Fusion tool library (.tools) if you load one, then the setup-sheet CSV, then the tool name in the program.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Display</summary>
+        <div class="pad">
+          <div class="grid2">
+            <label class="f">Toolpath lines
+              <select id="pathSel"><option value="op">Current operation</option><option value="all">Whole program</option><option value="off">Hidden</option></select>
+            </label>
+            <label class="f">Rapid moves
+              <select id="rapidSel"><option value="off">Hidden</option><option value="on">Shown</option></select>
+            </label>
+            <label class="f">Holder
+              <select id="holderSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
+            </label>
+            <label class="f">Workholding
+              <select id="fixSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
+            </label>
+            <label class="f">Original stock outline
+              <select id="ghostSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
+            </label>
+          </div>
+        </div>
+      </details>
+    </aside>
+  </main>
+
+  <footer class="transport">
+    <div class="tbtns">
+      <button class="btn" id="bRestart" type="button" aria-label="Back to start" title="Back to start (Home)"><svg viewBox="0 0 24 24"><path d="M6 5h2.5v14H6zM20 5v14L9.5 12z"/></svg></button>
+      <button class="btn" id="bPrev" type="button" aria-label="Previous operation" title="Previous operation (Left arrow)"><svg viewBox="0 0 24 24"><path d="M11 6v12L2.5 12zM21.5 6v12L13 12z"/></svg></button>
+      <button class="btn primary play" id="bPlay" type="button" aria-label="Play" title="Play / pause (Space)"><svg viewBox="0 0 24 24" id="playIcon"><path d="M7 4.5v15L19.5 12z"/></svg></button>
+      <button class="btn" id="bNext" type="button" aria-label="Next operation" title="Next operation (Right arrow)"><svg viewBox="0 0 24 24"><path d="M2.5 6v12L11 12zM13 6v12l8.5-6z"/></svg></button>
+    </div>
+    <div class="scrubwrap">
+      <div class="ticks" id="ticks"></div>
+      <input id="scrub" type="range" min="0" max="10000" value="0" aria-label="Program timeline">
+    </div>
+    <div class="speed">
+      <label for="speedSel">Speed</label>
+      <select id="speedSel" class="sel">
+        <option value="1">1x</option><option value="3">3x</option><option value="10">10x</option>
+        <option value="30" selected>30x</option><option value="100">100x</option><option value="300">300x</option><option value="1000">1000x</option>
+      </select>
+    </div>
+    <div class="time" id="timeTxt">0:00 / 0:00</div>
+  </footer>
+</div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ==========================================================================
+   NC engine: G-code parser, tool model, swept-tool stock removal
+   Pure JS, no DOM, so it can be unit-tested outside the browser.
+   All internal units are millimetres. Z is up, tool position = tool tip.
+   ========================================================================== */
+const NC = (() => {
+  'use strict';
+  const RAPID_MMPM = 24000;
+  const CC_NOTE = 'Cutter compensation (G41/G42) is treated as wear compensation: the programmed path is the tool centre, and offset values are not applied.';          // assumed rapid rate for time estimates
+
+  /* ---------- tool model ---------- */
+  function typeFromText(s) {
+    s = String(s || '').toUpperCase();
+    if (/BALL/.test(s)) return 'ball';
+    if (/BULL|CORNER RAD/.test(s)) return 'bull';
+    if (/CHAMFER|ENGRAV|SPOT|COUNTERSINK|CSINK/.test(s)) return 'chamfer';
+    if (/DRILL|CENTER/.test(s)) return 'drill';
+    return 'flat';
+  }
+
+  // Fill in anything missing so every tool is drawable and simulatable.
+  function completeTool(t) {
+    t.D = t.D > 0 ? t.D : 6;
+    if (!t.type) t.type = 'flat';
+    if (t.type === 'flat' && t.rc > 0) t.type = t.rc >= t.D / 2 - 1e-6 ? 'ball' : 'bull';
+    if (t.type === 'ball') t.rc = t.D / 2;
+    if (t.type === 'bull') t.rc = Math.min(Math.max(t.rc || 0.5, 0.05), t.D / 2);
+    if (t.type === 'drill' && !(t.tip > 0)) t.tip = 118;
+    if (t.type === 'chamfer' && !(t.tip > 0)) t.tip = 90;
+    if (!(t.tipD >= 0)) t.tipD = 0;
+    const T = simTool(t);
+    const tipH = T.kind === 3 ? (T.R - T.r0) * T.slope : (T.kind === 1 ? T.R : 0);
+    if (!(t.flute > 0)) t.flute = Math.max(2.5 * t.D, 8);
+    t.flute = Math.max(t.flute, tipH + 1);
+    if (!(t.stick > 0)) t.stick = t.flute + 10;
+    t.stick = Math.max(t.stick, t.flute + 2);
+    if (!(t.holderD > 0)) t.holderD = Math.max(32, t.D + 16);
+    if (!(t.holderH > 0)) t.holderH = 55;
+    return t;
+  }
+
+  // Simulation tool: the profile function prof(d) is the height of the tool
+  // surface above the tip at horizontal distance d from the axis.
+  function simTool(t) {
+    const R = (t.D || 6) / 2;
+    if (t.type === 'ball') return { R, kind: 1, rc: R, r0: 0, slope: 0 };
+    if (t.type === 'bull') { const rc = Math.min(t.rc || 0.5, R); return { R, kind: 2, rc, r0: R - rc, slope: 0 }; }
+    if (t.type === 'drill' || t.type === 'chamfer') {
+      const half = ((t.tip || (t.type === 'drill' ? 118 : 90)) / 2) * Math.PI / 180;
+      return { R, kind: 3, rc: 0, r0: Math.min(Math.max((t.tipD || 0) / 2, 0), R * 0.95), slope: 1 / Math.tan(half) };
+    }
+    return { R, kind: 0, rc: 0, r0: R, slope: 0 };
+  }
+
+  function prof(T, d) {
+    switch (T.kind) {
+      case 0: return 0;
+      case 1: { const q = T.R * T.R - d * d; return T.R - Math.sqrt(q > 0 ? q : 0); }
+      case 2: { const e = d - T.r0; if (e <= 0) return 0; const q = T.rc * T.rc - e * e; return T.rc - Math.sqrt(q > 0 ? q : 0); }
+      default: { const e = d - T.r0; return e > 0 ? e * T.slope : 0; }
+    }
+  }
+
+  function holderSegments(t) {
+    if (t.holderSegs && t.holderSegs.length) return t.holderSegs;
+    const nose = Math.max(t.D + 6, 16);
+    const body = Math.max(t.holderD, nose + 2);
+    const taper = Math.min(22, Math.max(t.holderH * 0.35, 8));
+    return [{ h: taper, d0: nose, d1: body }, { h: Math.max(1, t.holderH - taper), d0: body, d1: body }];
+  }
+
+  /* ---------- Fusion tool library (best effort) ---------- */
+  function applyLibrary(json, tools) {
+    const arr = Array.isArray(json) ? json : (json && Array.isArray(json.data) ? json.data : []);
+    let matched = 0;
+    for (const e of arr) {
+      const no = e && e['post-process'] && e['post-process'].number;
+      if (no == null) continue;
+      const t = tools.find(x => x.no === no);
+      if (!t) continue;
+      const g = e.geometry || {};
+      const k = /inch/i.test(e.unit || '') ? 25.4 : 1;
+      if (g.DC > 0) t.D = g.DC * k;
+      t.type = typeFromText(e.type);
+      t.rc = t.type === 'bull' && g.RE > 0 ? g.RE * k : 0;
+      t.tip = t.type === 'drill' ? (g.SIG > 0 ? g.SIG : 118) : (t.type === 'chamfer' ? (g.TA > 0 ? g.TA * 2 : 90) : undefined);
+      t.tipD = t.type === 'chamfer' && g['tip-diameter'] > 0 ? g['tip-diameter'] * k : 0;
+      t.flute = g.LCF > 0 ? g.LCF * k : 0;
+      t.stick = g.LB > 0 ? g.LB * k : (g['shoulder-length'] > 0 ? g['shoulder-length'] * k : 0);
+      if (e.description) t.name = String(e.description);
+      const segs = e.holder && Array.isArray(e.holder.segments) ? e.holder.segments : null;
+      if (segs && segs.length) {
+        const kh = /inch/i.test((e.holder && e.holder.unit) || e.unit || '') ? 25.4 : 1;
+        t.holderName = e.holder.description || t.holderName;
+        t.holderSegs = segs.map(s => ({ h: (s.height || 0) * kh, d0: (s['lower-diameter'] || 0) * kh, d1: (s['upper-diameter'] || 0) * kh }));
+        t.holderD = Math.max(...t.holderSegs.map(s => Math.max(s.d0, s.d1)));
+        t.holderH = t.holderSegs.reduce((a, s) => a + s.h, 0);
+      }
+      t.defaulted = false; t.fromLib = true;
+      completeTool(t);
+      matched++;
+    }
+    return matched;
+  }
+
+  /* ---------- helpers for real-world job files ---------- */
+  // Guess units when a program has no G20/G21 (Brother controls default from a parameter).
+  function guessInch(stripped) {
+    let mx = 0, n = 0; const fs = [];
+    const re = /([XYF])\s*(-?\d*\.?\d+)/g; let m;
+    while ((m = re.exec(stripped))) {
+      const v = Math.abs(parseFloat(m[2]));
+      if (m[1] === 'F') fs.push(v); else { n++; if (v > mx) mx = v; }
+    }
+    if (!n) return false;
+    fs.sort((a, b) => a - b);
+    return mx < 40 && (fs.length ? fs[fs.length >> 1] : 1e9) < 250;
+  }
+
+  // Read diameter, corner radius and point angle out of a tool name such as
+  // "1/8  BULL .025R 3/16LOC 4FL" or ".1575 4MM DRILL 140 DEG TSC".
+  function guessFromName(t, name, inch) {
+    const s = String(name).toUpperCase(), sc = inch ? 25.4 : 1;
+    t.type = typeFromText(s);
+    const lead = /^\s*(?:(\d+)\/(\d+)|(\d*\.\d+)|(\d+))\s*(MM)?/.exec(s);
+    if (lead) {
+      const v = lead[1] ? +lead[1] / +lead[2] : (lead[3] ? +lead[3] : +lead[4]);
+      t.D = lead[5] ? v : v * sc;
+    }
+    const cr = /(\d*\.\d+)\s*R\b/.exec(s);
+    if (cr && t.type === 'bull') t.rc = +cr[1] * sc;
+    const ang = /(\d+)\s*DEG/.exec(s);
+    if (ang && (t.type === 'drill' || t.type === 'chamfer')) t.tip = +ang[1];
+    t.guessed = true;
+  }
+
+  function parseCsvRows(text) {
+    const rows = []; let row = [], f = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+      else if (c === '"') q = true;
+      else if (c === ',') { row.push(f); f = ''; }
+      else if (c === '\n') { row.push(f); rows.push(row); row = []; f = ''; }
+      else if (c !== '\r') f += c;
+    }
+    if (f !== '' || row.length) { row.push(f); rows.push(row); }
+    return rows;
+  }
+
+  // Setup sheet CSV exported from the CAM post: stock size, cycle time, and one row per operation.
+  function parseSetupCsv(text) {
+    const rows = parseCsvRows(String(text).replace(/^\uFEFF/, ''));
+    const hi = rows.findIndex(r => /^Seq/i.test((r[0] || '').trim()));
+    if (hi < 0) return null;
+    const out = { stock: null, cycleSec: null, machine: '', unit: 'in', ops: [], tools: [] };
+    for (const r of rows.slice(hi + 1)) {
+      if (r.length < 8) continue;
+      const desc = r[1] || '';
+      if (/STOCK:/i.test(desc) || parseFloat(r[0]) === 0) {
+        const sm = /STOCK:\s*X\s*=\s*([\d.]+)\s*(\w+)\s*\|\s*Y\s*=\s*([\d.]+)\s*\w+\s*\|\s*Z\s*=\s*([\d.]+)/i.exec(desc);
+        if (sm) { out.unit = /^in/i.test(sm[2]) ? 'in' : 'mm'; const k = out.unit === 'in' ? 25.4 : 1; out.stock = { x: +sm[1] * k, y: +sm[3] * k, z: +sm[4] * k }; }
+        const cm = /Cycle Time:\s*(\d+):(\d+):(\d+)/i.exec(desc); if (cm) out.cycleSec = +cm[1] * 3600 + +cm[2] * 60 + +cm[3];
+        const mm = /Machine:\s*([^|]+)/i.exec(desc); if (mm) out.machine = mm[1].trim();
+        continue;
+      }
+      const g = /T\s*(\d+)/i.exec(r[3] || ''); if (!g) continue;
+      const no = +g[1], k = out.unit === 'in' ? 25.4 : 1;
+      out.ops.push({ label: String(desc).replace(/^\s*OP\d+\s*\|\s*/i, '').trim(), tool: no });
+      if (!out.tools.find(t => t.no === no)) out.tools.push({ no, ooh: parseFloat(r[4]) * k, holder: (r[5] || '').trim(), cutD: parseFloat(r[9]) * k, tipRaw: (r[11] || '').trim(), name: (r[12] || '').trim() });
+    }
+    return out;
+  }
+
+  // Fallback tool sizes from the setup sheet when no tool library is loaded.
+  function applyCsvTools(tools, csv) {
+    if (!csv) return 0;
+    let n = 0; const k = csv.unit === 'in' ? 25.4 : 1;
+    for (const c of csv.tools) {
+      const t = tools.find(x => x.no === c.no); if (!t || t.fromLib) continue;
+      if (c.cutD > 0) t.D = c.cutD;
+      if (c.ooh > 0) t.stick = c.ooh;
+      if (c.holder) t.holderName = c.holder;
+      const tp = c.tipRaw || '';
+      if (/°|deg/i.test(tp)) { const a = parseFloat(tp); if (a > 0) t.tip = t.type === 'chamfer' ? a * 2 : a; }
+      else if (parseFloat(tp) > 0 && (t.type === 'flat' || t.type === 'bull')) { t.rc = parseFloat(tp) * k; t.type = t.rc >= t.D / 2 - 1e-6 ? 'ball' : 'bull'; }
+      t.flute = 0; t.guessed = false; t.defaulted = false; t.fromCsv = true;
+      completeTool(t); n++;
+    }
+    return n;
+  }
+
+  // A Fusion .tools file is a zip holding tools.json.
+  async function unzipText(buf) {
+    const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf), dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    let e = -1;
+    for (let i = b.length - 22; i >= Math.max(0, b.length - 66000); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    if (e < 0) throw new Error('That is not a zip file');
+    const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true);
+    for (let k = 0; k < n; k++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      const method = dv.getUint16(p + 10, true), csz = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), lo = dv.getUint32(p + 42, true);
+      const name = new TextDecoder().decode(b.subarray(p + 46, p + 46 + nl));
+      p += 46 + nl + el + cl;
+      if (!/\.json$/i.test(name)) continue;
+      const start = lo + 30 + dv.getUint16(lo + 26, true) + dv.getUint16(lo + 28, true), data = b.subarray(start, start + csz);
+      if (method === 0) return new TextDecoder().decode(data);
+      if (method === 8) return await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+      throw new Error('Unsupported zip compression');
+    }
+    throw new Error('No JSON found inside the .tools file');
+  }
+
+  /* ---------- G-code parser ---------- */
+  function parseProgram(text, opts) {
+    opts = opts || {};
+    const lines = String(text).replace(/\r/g, '').split('\n');
+    const X = [], Y = [], Z = [], K = [], F = [], S = [], TL = [], CO = [], OP = [], LN = [];
+    const ops = [], tools = new Map(), warnings = [], notes = [], warned = new Set();
+    const warn = m => { if (!warned.has(m)) { warned.add(m); warnings.push(m); } };
+
+    // Units are often declared after the tool comments, so look ahead.
+    const stripped = lines.map(l => l.replace(/\([^)]*\)/g, ' ').replace(/;.*/, '')).join('\n');
+    const um = /G\s*(20|21)(?!\d)/.exec(stripped);
+    let inch = false;
+    if (opts.units === 'inch') inch = true;
+    else if (opts.units === 'mm') inch = false;
+    else if (um) inch = um[1] === '20';
+    else {
+      inch = guessInch(stripped);
+      notes.push('No G20/G21 in this program, so the units were read as ' + (inch ? 'inches' : 'millimetres') + '. Change this under Stock and resolution if that is wrong.');
+    }
+
+    let x = 0, y = 0, z = 0, abs = true, plane = 17, motion = -1, r98 = true;
+    let feed = 0, spindle = 0, spinOn = false, coolant = 0, tool = 0, pendingTool = 0;
+    let cycleR = 0, cycleZ = 0, cycleInit = 0;
+    let pendingLabel = null, forceNewOp = true, init = null;
+
+    const getTool = no => {
+      let t = tools.get(no);
+      if (!t) { t = { no, name: no ? 'T' + no : 'No tool selected', type: 'flat', D: 6, rc: 0, defaulted: true }; tools.set(no, t); }
+      return t;
+    };
+
+    const push = (kind, nx, ny, nz, ln) => {
+      if (!init) init = { x: nx, y: ny, z: nz };
+      if (forceNewOp || pendingLabel !== null || !ops.length) {
+        const t = getTool(tool);
+        ops.push({ label: pendingLabel || t.name || ('T' + tool), tool, move: X.length, line: ln });
+        pendingLabel = null; forceNewOp = false;
+      }
+      X.push(nx); Y.push(ny); Z.push(nz); K.push(kind); F.push(feed);
+      S.push(spinOn ? spindle : 0); TL.push(tool); CO.push(coolant); OP.push(ops.length - 1); LN.push(ln);
+      x = nx; y = ny; z = nz;
+    };
+
+    const handleComment = (c, own) => {
+      let m = /^T\s*(\d+)\s+(.*)$/i.exec(c);
+      if (m && /\bD\s*=/i.test(m[2])) {                       // Fusion tool-list comment
+        const t = getTool(+m[1]); t.defaulted = false;
+        const rest = m[2], sc = inch ? 25.4 : 1;
+        const num = re => { const r = re.exec(rest); return r ? parseFloat(r[1]) : null; };
+        const D = num(/\bD\s*=\s*([-\d.]+)/i), CR = num(/\bCR\s*=\s*([-\d.]+)/i), TP = num(/TAPER\s*=\s*([-\d.]+)/i);
+        if (D != null) t.D = D * sc;
+        if (CR != null) t.rc = CR * sc;
+        const parts = rest.split(/\s+-\s+/), last = parts[parts.length - 1].trim();
+        if (parts.length > 1 && last && !/=/.test(last)) { t.name = last; t.type = typeFromText(last); }
+        if (TP != null && TP > 0 && t.type === 'chamfer') t.tip = TP * 2;
+        return;
+      }
+      m = /^T\s*(\d+)\s+-\s+(.+)$/i.exec(c);
+      if (m) {                                               // shop style: T57 - NAME - HLDR=.. - OOH=..
+        const t = getTool(+m[1]), sc = inch ? 25.4 : 1, parts = m[2].split(/\s+-\s+/);
+        t.name = parts[0].trim(); guessFromName(t, t.name, inch); t.defaulted = false;
+        for (const p of parts.slice(1)) {
+          const kv = /^([A-Z]+)\s*=\s*(.+)$/i.exec(p.trim()); if (!kv) continue;
+          const key = kv[1].toUpperCase();
+          if (key === 'OOH' && parseFloat(kv[2]) > 0) t.stick = parseFloat(kv[2]) * sc;
+          else if (key === 'HLDR') t.holderName = kv[2].trim();
+        }
+        return;
+      }
+      if (own && c && !/^FTL-/i.test(c)) pendingLabel = c;   // only stand-alone comment lines name an operation
+    };
+
+    // Arcs in any plane. (u,v) is the plane, w the axis that moves helically.
+    const arc = (cw, tx, ty, tz, a, ln) => {
+      const k = inch ? 25.4 : 1;
+      let iu, iv, iw, cuw, cvw;
+      if (plane === 17) { iu = 0; iv = 1; iw = 2; cuw = 'I'; cvw = 'J'; }
+      else if (plane === 18) { iu = 2; iv = 0; iw = 1; cuw = 'K'; cvw = 'I'; }
+      else { iu = 1; iv = 2; iw = 0; cuw = 'J'; cvw = 'K'; }
+      const P0 = [x, y, z], P1 = [tx, ty, tz];
+      const u0 = P0[iu], v0 = P0[iv], w0 = P0[iw], u1 = P1[iu], v1 = P1[iv], w1 = P1[iw];
+      let cu, cv;
+      if (cuw in a || cvw in a) { cu = u0 + (a[cuw] || 0) * k; cv = v0 + (a[cvw] || 0) * k; }
+      else if ('R' in a) {
+        const r = a.R * k, du = u1 - u0, dv = v1 - v0, d = Math.hypot(du, dv);
+        if (d < 1e-9) { push(1, tx, ty, tz, ln); return; }
+        const hh = Math.sqrt(Math.max(0, r * r - (d / 2) * (d / 2)));
+        const sgn = (cw ? -1 : 1) * (r > 0 ? 1 : -1);
+        cu = (u0 + u1) / 2 + sgn * hh * (-dv / d); cv = (v0 + v1) / 2 + sgn * hh * (du / d);
+      } else { push(1, tx, ty, tz, ln); return; }
+      const rad = Math.hypot(u0 - cu, v0 - cv);
+      const a0 = Math.atan2(v0 - cv, u0 - cu), a1 = Math.atan2(v1 - cv, u1 - cu);
+      let da = a1 - a0;
+      if (cw) { if (da >= -1e-9) da -= 2 * Math.PI; } else { if (da <= 1e-9) da += 2 * Math.PI; }
+      const step = rad > 0.01 ? 2 * Math.acos(Math.max(-1, 1 - 0.004 / rad)) : Math.PI / 4;
+      const n = Math.max(2, Math.min(4000, Math.ceil(Math.abs(da) / step)));
+      for (let s = 1; s <= n; s++) {
+        if (s === n) { push(1, tx, ty, tz, ln); continue; }
+        const ang = a0 + da * s / n, pt = [0, 0, 0];
+        pt[iu] = cu + rad * Math.cos(ang); pt[iv] = cv + rad * Math.sin(ang); pt[iw] = w0 + (w1 - w0) * s / n;
+        push(1, pt[0], pt[1], pt[2], ln);
+      }
+    };
+
+    const block = (words, ln) => {
+      const g = [], mc = [], a = {};
+      for (const [c, v] of words) {
+        if (c === 'G') g.push(v);
+        else if (c === 'M') mc.push(Math.round(v));
+        else if ('XYZIJKRQPFSTHDL'.includes(c)) a[c] = v;
+        else if ('ABC'.includes(c)) { if (Math.abs(v) > 1e-9) warn('Rotary axis moves (A/B/C) are ignored'); }
+      }
+      const k = () => (inch ? 25.4 : 1);
+      let newMotion = null, skip = false, toolChange = false;
+      for (const v of g) {
+        switch (v) {
+          case 20: inch = true; break;
+          case 21: inch = false; break;
+          case 90: abs = true; break;
+          case 91: abs = false; break;
+          case 17: plane = 17; break;
+          case 18: plane = 18; break;
+          case 19: plane = 19; break;
+          case 98: r98 = true; break;
+          case 99: r98 = false; break;
+          case 0: case 1: case 2: case 3: newMotion = v; break;
+          case 73: case 81: case 82: case 83: case 84: case 85: case 86: case 87: case 88: case 89: newMotion = v; break;
+          case 80: newMotion = -1; break;
+          case 4: case 10: case 28: case 30: case 53: case 92: skip = true; break;
+          case 100: toolChange = true; break;
+          case 41: case 42: if (!notes.includes(CC_NOTE)) notes.push(CC_NOTE); break;
+          default: break;
+        }
+      }
+      if ('F' in a) feed = a.F * k();
+      if ('S' in a) spindle = a.S;
+      if ('T' in a) pendingTool = Math.round(a.T);
+      for (const m of mc) {
+        if (m === 3 || m === 4) spinOn = true;
+        else if (m === 5) spinOn = false;
+        else if (m === 8) coolant |= 1;
+        else if (m === 7) coolant |= 2;
+        else if (m === 9) coolant = 0;
+        else if (m === 88 || m === 494) coolant |= 4;
+        else if (m === 89 || m === 495) coolant &= ~4;
+      }
+      if (mc.includes(6) || toolChange) { tool = pendingTool; getTool(tool); forceNewOp = true; }
+      if (skip) return;
+
+      const hasXY = ('X' in a) || ('Y' in a), hasXYZ = hasXY || ('Z' in a);
+      if (newMotion !== null) {
+        if (newMotion >= 73 && !(motion >= 73)) cycleInit = z;
+        motion = newMotion;
+      }
+      const tx = 'X' in a ? (abs ? a.X * k() : x + a.X * k()) : x;
+      const ty = 'Y' in a ? (abs ? a.Y * k() : y + a.Y * k()) : y;
+      const tz = 'Z' in a ? (abs ? a.Z * k() : z + a.Z * k()) : z;
+      if (motion === 0 || motion === 1) { if (hasXYZ) push(motion === 0 ? 0 : 1, tx, ty, tz, ln); }
+      else if (motion === 2 || motion === 3) { if (hasXYZ) arc(motion === 2, tx, ty, tz, a, ln); }
+      else if (motion >= 73) {
+        if ('R' in a) cycleR = abs ? a.R * k() : cycleInit + a.R * k();
+        if ('Z' in a) cycleZ = abs ? a.Z * k() : cycleR + a.Z * k();
+        if (newMotion !== null || hasXY) {
+          const cx = 'X' in a ? tx : x, cy = 'Y' in a ? ty : y;
+          const retr = r98 ? Math.max(cycleInit, cycleR) : cycleR;
+          push(0, cx, cy, z, ln);
+          push(0, cx, cy, cycleR, ln);
+          push(1, cx, cy, cycleZ, ln);          // peck cycles are simulated as one plunge
+          push(0, cx, cy, retr, ln);
+        }
+      }
+    };
+
+    for (let li = 0; li < lines.length; li++) {
+      const raw = lines[li];
+      if (raw.charCodeAt(0) === 47) continue;                         // block delete
+      const comments = [];
+      let code = raw.replace(/\(([^)]*)\)/g, (m, c) => { comments.push(c.trim()); return ' '; });
+      const sc = code.indexOf(';');
+      if (sc >= 0) { comments.push(code.slice(sc + 1).trim()); code = code.slice(0, sc); }
+      const own = !code.trim();
+      for (const c of comments) if (c) handleComment(c, own);
+      const words = [];
+      const re = /([A-Za-z])\s*([-+]?(?:\d+\.?\d*|\.\d+))/g;
+      let m;
+      while ((m = re.exec(code))) words.push([m[1].toUpperCase(), parseFloat(m[2])]);
+      if (words.length) block(words, li + 1);
+    }
+
+    const n = X.length;
+    const P = {
+      n, lines, ops, warnings, notes, init: init || { x: 0, y: 0, z: 0 },
+      X: Float32Array.from(X), Y: Float32Array.from(Y), Z: Float32Array.from(Z),
+      K: Uint8Array.from(K), F: Float32Array.from(F), S: Float32Array.from(S),
+      TL: Uint16Array.from(TL), CO: Uint8Array.from(CO), OP: Uint16Array.from(OP), LN: Uint32Array.from(LN),
+      inch,
+    };
+    // tools used by moves must exist
+    for (let i = 0; i < n; i++) getTool(P.TL[i]);
+    P.tools = [...tools.values()].filter(t => t.no !== 0 || P.TL.includes(0)).sort((a, b) => a.no - b.no);
+    P.tools.forEach(completeTool);
+
+    // cumulative time (seconds) and bounds of cutting moves
+    P.cumT = new Float64Array(n);
+    let tt = 0, px = P.init.x, py = P.init.y, pz = P.init.z;
+    const b = { xmin: 1e9, xmax: -1e9, ymin: 1e9, ymax: -1e9, zmin: 1e9, zmax: -1e9 };
+    const ball = { xmin: 1e9, xmax: -1e9, ymin: 1e9, ymax: -1e9, zmin: 1e9, zmax: -1e9 };
+    for (let i = 0; i < n; i++) {
+      const d = Math.hypot(P.X[i] - px, P.Y[i] - py, P.Z[i] - pz);
+      const sp = P.K[i] ? (P.F[i] > 0 ? P.F[i] : 500) : RAPID_MMPM;
+      tt += d / (sp / 60); P.cumT[i] = tt;
+      const bb = P.K[i] ? b : ball;
+      bb.xmin = Math.min(bb.xmin, P.X[i]); bb.xmax = Math.max(bb.xmax, P.X[i]);
+      bb.ymin = Math.min(bb.ymin, P.Y[i]); bb.ymax = Math.max(bb.ymax, P.Y[i]);
+      bb.zmin = Math.min(bb.zmin, P.Z[i]); bb.zmax = Math.max(bb.zmax, P.Z[i]);
+      px = P.X[i]; py = P.Y[i]; pz = P.Z[i];
+    }
+    P.total = tt;
+    P.bounds = b.xmin <= b.xmax ? b : ball;
+    P.feedBounds = b.xmin <= b.xmax;
+    return P;
+  }
+
+  /* ---------- stock model: z-dexel height field with swept-tool cutting ---------- */
+  function fsw(T, az, dz, L2, uD, uu, t) {
+    const d2 = L2 * t * t - 2 * uD * t + uu;
+    return az + t * dz + prof(T, Math.sqrt(d2 > 0 ? d2 : 0));
+  }
+
+  class HeightSim {
+    constructor(box, target) {
+      this.box = box;
+      const W = box.xmax - box.xmin, H = box.ymax - box.ymin;
+      const c = Math.max(W, H) / target;
+      this.nx = Math.max(8, Math.round(W / c));
+      this.ny = Math.max(8, Math.round(H / c));
+      this.dx = W / this.nx; this.dy = H / this.ny;
+      this.x0 = box.xmin; this.y0 = box.ymin;
+      this.zTop = box.ztop; this.zBot = box.zbot;
+      this.h = new Float32Array(this.nx * this.ny);
+      this.op = new Uint16Array(this.nx * this.ny);
+      this.reset();
+    }
+    reset() { this.h.fill(this.zTop); this.op.fill(0); this.markAll(); }
+    clearDirty() { this.di0 = 1e9; this.di1 = -1; this.dj0 = 1e9; this.dj1 = -1; }
+    markAll() { this.di0 = 0; this.di1 = this.nx - 1; this.dj0 = 0; this.dj1 = this.ny - 1; }
+    snapshot() { return { h: this.h.slice(), op: this.op.slice() }; }
+    restore(s) { this.h.set(s.h); this.op.set(s.op); this.markAll(); }
+
+    // Remove everything the tool sweeps between (ax,ay,az) and (bx,by,bz).
+    // Exact for the swept envelope of vertical-axis tools whose profile is
+    // convex and non-decreasing (flat, ball, bull-nose, cone).
+    cut(ax, ay, az, bx, by, bz, T, opId) {
+      const R = T.R, h = this.h, nx = this.nx, ny = this.ny, dx = this.dx, dy = this.dy, x0 = this.x0, y0 = this.y0;
+      const zmin = az < bz ? az : bz;
+      if (zmin >= this.zTop) return;
+      let i0 = Math.floor(((ax < bx ? ax : bx) - R - x0) / dx), i1 = Math.floor(((ax > bx ? ax : bx) + R - x0) / dx);
+      let j0 = Math.floor(((ay < by ? ay : by) - R - y0) / dy), j1 = Math.floor(((ay > by ? ay : by) + R - y0) / dy);
+      if (i0 < 0) i0 = 0; if (j0 < 0) j0 = 0; if (i1 > nx - 1) i1 = nx - 1; if (j1 > ny - 1) j1 = ny - 1;
+      if (i0 > i1 || j0 > j1) return;
+      const Dx = bx - ax, Dy = by - ay, dz = bz - az, L2 = Dx * Dx + Dy * Dy, R2 = R * R, kind = T.kind;
+      const vertical = L2 < 1e-6, planar = dz > -1e-6 && dz < 1e-6;
+      const short = L2 < (R * 0.75) * (R * 0.75);
+      const zBot = this.zBot, opa = this.op;
+      let m0 = 1e9, m1 = -1, n0 = 1e9, n1 = -1;
+      for (let j = j0; j <= j1; j++) {
+        const uy = y0 + (j + 0.5) * dy - ay, row = j * nx;
+        for (let i = i0; i <= i1; i++) {
+          const idx = row + i, cur = h[idx];
+          if (cur <= zmin) continue;
+          const ux = x0 + (i + 0.5) * dx - ax;
+          let hz;
+          if (vertical) {
+            const d2 = ux * ux + uy * uy;
+            if (d2 > R2) continue;
+            hz = zmin + (kind === 0 ? 0 : prof(T, Math.sqrt(d2)));
+          } else {
+            const uD = ux * Dx + uy * Dy, uu = ux * ux + uy * uy;
+            const disc = uD * uD - L2 * (uu - R2);
+            if (disc < 0) continue;
+            const sq = Math.sqrt(disc);
+            let t1 = (uD - sq) / L2, t2 = (uD + sq) / L2;
+            if (t1 < 0) t1 = 0; if (t2 > 1) t2 = 1;
+            if (t1 > t2) continue;
+            const z1 = az + t1 * dz, z2 = az + t2 * dz;
+            const lb = z1 < z2 ? z1 : z2;
+            if (lb >= cur) continue;
+            if (kind === 0) hz = lb;
+            else if (planar) {
+              let ts = uD / L2; if (ts < t1) ts = t1; else if (ts > t2) ts = t2;
+              const d2 = L2 * ts * ts - 2 * uD * ts + uu;
+              hz = az + prof(T, Math.sqrt(d2 > 0 ? d2 : 0));
+            } else if (short) {
+              let ts = uD / L2; if (ts < t1) ts = t1; else if (ts > t2) ts = t2;
+              hz = fsw(T, az, dz, L2, uD, uu, ts);
+              const a1 = fsw(T, az, dz, L2, uD, uu, t1); if (a1 < hz) hz = a1;
+              const a2 = fsw(T, az, dz, L2, uD, uu, t2); if (a2 < hz) hz = a2;
+              const tm = 0.5 * (t1 + t2), a3 = fsw(T, az, dz, L2, uD, uu, tm); if (a3 < hz) hz = a3;
+            } else {
+              let lo = t1, hi = t2;
+              for (let it = 0; it < 18; it++) {
+                const m1_ = lo + (hi - lo) / 3, m2_ = hi - (hi - lo) / 3;
+                if (fsw(T, az, dz, L2, uD, uu, m1_) < fsw(T, az, dz, L2, uD, uu, m2_)) hi = m2_; else lo = m1_;
+              }
+              hz = fsw(T, az, dz, L2, uD, uu, 0.5 * (lo + hi));
+            }
+          }
+          if (hz < cur) {
+            if (hz < zBot) hz = zBot;
+            if (hz < cur) {
+              h[idx] = hz; opa[idx] = opId;
+              if (i < m0) m0 = i; if (i > m1) m1 = i; if (j < n0) n0 = j; if (j > n1) n1 = j;
+            }
+          }
+        }
+      }
+      if (m1 >= 0) {
+        if (m0 < this.di0) this.di0 = m0; if (m1 > this.di1) this.di1 = m1;
+        if (n0 < this.dj0) this.dj0 = n0; if (n1 > this.dj1) this.dj1 = n1;
+      }
+    }
+  }
+
+  // cut part f0..f1 of move i (feed moves only; rapids do not cut)
+  function cutMove(sim, P, simTools, i, f0, f1) {
+    if (!P.K[i] || f1 <= f0) return;
+    const sx = i > 0 ? P.X[i - 1] : P.init.x, sy = i > 0 ? P.Y[i - 1] : P.init.y, sz = i > 0 ? P.Z[i - 1] : P.init.z;
+    const ex = P.X[i], ey = P.Y[i], ez = P.Z[i];
+    const T = simTools.get(P.TL[i]);
+    if (!T) return;
+    sim.cut(sx + (ex - sx) * f0, sy + (ey - sy) * f0, sz + (ez - sz) * f0,
+            sx + (ex - sx) * f1, sy + (ey - sy) * f1, sz + (ez - sz) * f1, T, P.OP[i] + 1);
+  }
+
+  /* ---------- sample programs ---------- */
+  const fx = n => { const s = String(+n.toFixed(3)); return s.includes('.') ? s : s + '.'; };
+
+  function demoProgram() {
+    const L = [];
+    const G = s => L.push(s);
+    G('%'); G('O1001 (FLOOR SIM DEMO)');
+    G('(Stock 100 x 70 x 20, WCS at stock centre, Z0 at top)');
+    G('(T1  D=10. CR=0. - ZMIN=-7.8 - FLAT END MILL)');
+    G('(T2  D=6. CR=0. - ZMIN=-8. - FLAT END MILL)');
+    G('(T3  D=5. CR=0. - ZMIN=-14. - DRILL)');
+    G('(T4  D=12. CR=0. - ZMIN=-5. - CHAMFER MILL)');
+    G('(T5  D=6. CR=3. - ZMIN=-1.5 - BALL END MILL)');
+    G('G90 G94 G17 G21 G49 G40 G80');
+    // --- op 1: roughing
+    G('(2D Pocket - Rough)'); G('T1 M6'); G('S8000 M3'); G('G54'); G('G0 X3. Y0.'); G('G43 H1 Z10.'); G('M8');
+    const rows = [-12.7, -6.7, -0.7, 5.3, 11.3, 12.7];
+    let zPrev = 0;
+    for (const zc of [-3.9, -7.8]) {
+      G('G0 Z2.'); G('G1 Z' + fx(zPrev + 0.5) + ' F1000.');
+      G('G3 X3. Y0. I-3. J0. Z' + fx(zc) + ' F900.');
+      G('G3 X3. Y0. I-3. J0.');
+      G('G1 X24.7 Y-12.7 F1200.');
+      let dir = -1;
+      rows.forEach((yy, r) => { if (r > 0) G('G1 Y' + fx(yy)); G('G1 X' + fx(24.7 * dir)); dir = -dir; });
+      G('G0 Z2.');
+      zPrev = zc;
+    }
+    G('G0 Z10.'); G('M9'); G('G91 G28 Z0.'); G('G90');
+    // --- op 2: finishing
+    G('(2D Pocket - Finish)'); G('T2 M6'); G('S10000 M3'); G('G0 X0. Y-15.'); G('G43 H2 Z10.'); G('M8'); G('G0 Z2.');
+    G('G1 Z-7.5 F600.'); G('G1 Z-8. F300.');
+    const frows = [-15, -11, -7, -3, 1, 5, 9, 13, 15];
+    let d2 = 1;
+    G('G1 X' + fx(27 * d2) + ' F800.');
+    frows.forEach((yy, r) => { if (r > 0) G('G1 Y' + fx(yy)); d2 = -d2; G('G1 X' + fx(27 * d2)); });
+    G('G1 Y-15.'); G('G1 X27.'); G('G1 Y15.'); G('G1 X-27.'); G('G1 Y-15.');
+    G('G0 Z10.'); G('M9'); G('G91 G28 Z0.'); G('G90');
+    // --- op 3: drilling
+    G('(Drill 5 mm holes)'); G('T3 M6'); G('S3500 M3'); G('G0 X40. Y25.'); G('G43 H3 Z10.'); G('M8');
+    G('G98 G83 X40. Y25. Z-14. R2. Q3. F250.'); G('X-40.'); G('Y-25.'); G('X40.'); G('G80'); G('M9');
+    // --- op 4: chamfer, using R-word arcs
+    G('(Chamfer pocket edge)'); G('T4 M6'); G('S6000 M3'); G('G0 X0. Y-14.'); G('G43 H4 Z10.'); G('M8'); G('G0 Z2.');
+    G('G1 Z-5. F500.'); G('G1 X24. F900.'); G('G3 X26. Y-12. R2.'); G('G1 Y12.'); G('G3 X24. Y14. R2.');
+    G('G1 X-24.'); G('G3 X-26. Y12. R2.'); G('G1 Y-12.'); G('G3 X-24. Y-14. R2.'); G('G1 X0.');
+    G('G0 Z10.'); G('M9');
+    // --- op 5: ball-nose helical grooves
+    G('(3D groove - helical entry)'); G('T5 M6'); G('S9000 M3'); G('G0 X45.5 Y0.'); G('G43 H5 Z10.'); G('M8'); G('G0 Z2.');
+    G('G1 Z0.5 F500.'); G('G3 X45.5 Y0. I-5.5 J0. Z-1.5 F400.'); G('G3 X45.5 Y0. I-5.5 J0.'); G('G0 Z2.');
+    G('G0 X-34.5 Y0.'); G('G1 Z0.5 F500.'); G('G2 X-34.5 Y0. I-5.5 J0. Z-1.5 F400.'); G('G2 X-34.5 Y0. I-5.5 J0.');
+    G('G0 Z10.'); G('M9'); G('M5'); G('G91 G28 Z0.'); G('G90'); G('M30'); G('%');
+    return L.join('\n');
+  }
+
+  // Dense 3D surfacing, a stand-in for a heavy finishing program.
+  function stressProgram() {
+    const L = [];
+    L.push('(Stress test - ball nose raster over a wavy surface)');
+    L.push('(T1  D=6. CR=3. - ZMIN=-5.2 - BALL END MILL)');
+    L.push('G90 G94 G17 G21', '(3D Parallel finish)', 'T1 M6', 'S12000 M3', 'G0 X-46. Y-46.', 'G43 H1 Z10.', 'M8', 'G0 Z2.');
+    const surf = (x, y) => -3 - 2 * Math.sin(x / 6) * Math.cos(y / 7);
+    let dir = 1, first = true;
+    for (let y = -46; y <= 46.001; y += 0.9) {
+      const xs = [];
+      for (let x = -46; x <= 46.001; x += 0.25) xs.push(x);
+      if (dir < 0) xs.reverse();
+      xs.forEach((x, i) => {
+        const s = 'X' + fx(x) + ' Y' + fx(y) + ' Z' + fx(surf(x, y));
+        L.push(first && i === 0 ? 'G1 ' + s + ' F1800.' : 'G1 ' + s);
+      });
+      first = false; dir = -dir;
+    }
+    L.push('G0 Z10.', 'M9', 'M5', 'M30');
+    return L.join('\n');
+  }
+
+  return { parseProgram, completeTool, simTool, prof, holderSegments, applyLibrary, typeFromText, parseSetupCsv, applyCsvTools, unzipText, guessFromName,
+           HeightSim, cutMove, demoProgram, stressProgram, RAPID_MMPM };
+})();
+if (typeof module !== 'undefined') module.exports = NC;
+
+</script>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const mmss = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+const setText = (n, t) => { t = String(t); if (n._t !== t) { n.textContent = t; n._t = t; } };
+const PALETTE = ['#e8a33d', '#2fb5c9', '#c96bd8', '#e5604d', '#7cc04a', '#5b8def', '#e0c341', '#9aa7b4'];
+const toolHex = no => (no > 0 ? PALETTE[(no - 1) % PALETTE.length] : '#9aa7b4');
+const hexRGB = h => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
+const BLUE = [0.24, 0.48, 1.0], GREEN = [0.21, 0.77, 0.39], NEUTRAL = [0.62, 0.68, 0.75], STEEL = [0.5, 0.55, 0.61];
+
+const S = {
+  prog: null, name: '', tools: [], simTools: new Map(), sim: null, snaps: [], finalH: null, finalOp: null,
+  tau: 0, cur: { i: 0, f: 0 }, playing: false, speed: 30, pendingSeek: null, mode: 'progress', res: 360,
+  token: 0, ready: false, curOp: -1, limited: false, stats: {}, needsRender: true, stock: null,
+  path: 'op', rapids: false, holder: true, ghost: true, hudTool: -1, hudLine: -1, toolsDirty: false, setup: null, fixtures: true,
+};
+
+/* ================= viewer ================= */
+const vp = $('vp');
+let renderer, scene, camera;
+try {
+  if (!window.THREE) throw new Error('three.js did not load (offline or blocked). Check the network connection.');
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+} catch (e) {
+  $('fatal').hidden = false; $('fatalTxt').textContent = String(e.message || e);
+  return;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setClearColor(0x000000, 0);
+vp.insertBefore(renderer.domElement, vp.firstChild);
+scene = new THREE.Scene();
+camera = new THREE.PerspectiveCamera(35, 1, 0.5, 20000);
+camera.up.set(0, 0, 1);
+scene.add(new THREE.AmbientLight(0xffffff, 0.62));
+const dl1 = new THREE.DirectionalLight(0xffffff, 0.78); dl1.position.set(0.5, -0.8, 1.4); scene.add(dl1);
+const dl2 = new THREE.DirectionalLight(0xffffff, 0.3); dl2.position.set(-1, 0.6, 0.4); scene.add(dl2);
+
+const invalidate = () => { S.needsRender = true; };
+const orb = { tx: 0, ty: 0, tz: 0, az: -0.8, el: 0.6, dist: 220 };
+function applyCamera() {
+  const ce = Math.cos(orb.el);
+  camera.position.set(orb.tx + orb.dist * ce * Math.cos(orb.az), orb.ty + orb.dist * ce * Math.sin(orb.az), orb.tz + orb.dist * Math.sin(orb.el));
+  camera.up.set(0, 0, 1);
+  camera.lookAt(orb.tx, orb.ty, orb.tz);
+  camera.updateMatrixWorld();
+  invalidate();
+}
+function resize() {
+  const w = vp.clientWidth || 300, h = vp.clientHeight || 300;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix(); invalidate();
+}
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(resize).observe(vp); else window.addEventListener('resize', resize);
+
+function panBy(dx, dy) {
+  const s = (2 * orb.dist * Math.tan(camera.fov * Math.PI / 360)) / (vp.clientHeight || 600);
+  const m = camera.matrixWorld.elements;
+  orb.tx += (-dx * m[0] + dy * m[4]) * s; orb.ty += (-dx * m[1] + dy * m[5]) * s; orb.tz += (-dx * m[2] + dy * m[6]) * s;
+  applyCamera();
+}
+function setView(name) {
+  const sim = S.sim;
+  if (name === 'fit' || name === 'iso') { orb.az = -0.8; orb.el = 0.6; }
+  if (name === 'top') { orb.az = -Math.PI / 2; orb.el = 1.52; }
+  if (name === 'front') { orb.az = -Math.PI / 2; orb.el = 0.04; }
+  if (sim && (name === 'fit' || name === 'iso' || name === 'top' || name === 'front')) {
+    const W = sim.nx * sim.dx, H = sim.ny * sim.dy, T = sim.zTop - sim.zBot;
+    orb.tx = sim.x0 + W / 2; orb.ty = sim.y0 + H / 2; orb.tz = sim.zTop - Math.min(T, 25) / 2;
+    orb.dist = Math.max(W, H, T) * 1.9 + 30;
+  }
+  applyCamera();
+}
+const ptrs = new Map(); let moved = 0;
+const cv = renderer.domElement;
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = 0; });
+cv.addEventListener('pointermove', e => {
+  const p = ptrs.get(e.pointerId); if (!p) return;
+  const nx = e.clientX, ny = e.clientY;
+  if (ptrs.size === 1) {
+    const dx = nx - p.x, dy = ny - p.y; moved += Math.abs(dx) + Math.abs(dy);
+    if (e.shiftKey || (e.buttons & 6)) panBy(dx, dy);
+    else { orb.az -= dx * 0.008; orb.el = clamp(orb.el + dy * 0.008, -1.52, 1.52); applyCamera(); }
+  } else if (ptrs.size === 2) {
+    let other = null; for (const [id, q] of ptrs) if (id !== e.pointerId) other = q;
+    const d0 = Math.hypot(p.x - other.x, p.y - other.y), d1 = Math.hypot(nx - other.x, ny - other.y);
+    moved += 20;
+    if (d0 > 0 && d1 > 0) { orb.dist = clamp(orb.dist * d0 / d1, 8, 6000); }
+    panBy((nx - p.x) / 2, (ny - p.y) / 2);
+  }
+  p.x = nx; p.y = ny;
+});
+const endPtr = e => { const had = ptrs.delete(e.pointerId); if (had && ptrs.size === 0 && moved < 6 && e.type === 'pointerup') pickAt(e.clientX, e.clientY); };
+cv.addEventListener('pointerup', endPtr); cv.addEventListener('pointercancel', endPtr);
+cv.addEventListener('wheel', e => { e.preventDefault(); orb.dist = clamp(orb.dist * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0012)), 8, 6000); applyCamera(); }, { passive: false });
+
+/* ---------- stock mesh (height field, corner vertices) ---------- */
+const STOCK = { group: new THREE.Group(), top: null };
+scene.add(STOCK.group);
+function clearGroup(g) {
+  for (const c of g.children.slice()) {
+    g.remove(c);
+    c.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); });
+  }
+}
+function computeZV(h, out, vi0, vi1, vj0, vj1) {
+  const sim = S.sim, nx = sim.nx, ny = sim.ny, vx = nx + 1;
+  for (let j = vj0; j <= vj1; j++) {
+    const ja = j > 0 ? j - 1 : 0, jb = j < ny ? j : ny - 1;
+    for (let i = vi0; i <= vi1; i++) {
+      const ia = i > 0 ? i - 1 : 0, ib = i < nx ? i : nx - 1;
+      out[j * vx + i] = 0.25 * (h[ja * nx + ia] + h[ja * nx + ib] + h[jb * nx + ia] + h[jb * nx + ib]);
+    }
+  }
+}
+function buildStock() {
+  clearGroup(STOCK.group);
+  const sim = S.sim, nx = sim.nx, ny = sim.ny, vx = nx + 1, vy = ny + 1, nv = vx * vy;
+  const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), col = new Float32Array(nv * 3);
+  for (let j = 0; j < vy; j++) for (let i = 0; i < vx; i++) {
+    const k = j * vx + i; pos[k * 3] = sim.x0 + i * sim.dx; pos[k * 3 + 1] = sim.y0 + j * sim.dy; pos[k * 3 + 2] = sim.zTop; nor[k * 3 + 2] = 1;
+  }
+  const idx = new Uint32Array(nx * ny * 6); let q = 0;
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const a = j * vx + i, b = a + 1, c = a + vx, d = c + 1;
+    idx[q++] = a; idx[q++] = b; idx[q++] = d; idx[q++] = a; idx[q++] = d; idx[q++] = c;
+  }
+  const geo = new THREE.BufferGeometry();
+  const aPos = new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage);
+  const aNor = new THREE.BufferAttribute(nor, 3).setUsage(THREE.DynamicDrawUsage);
+  const aCol = new THREE.BufferAttribute(col, 3).setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('position', aPos); geo.setAttribute('normal', aNor); geo.setAttribute('color', aCol);
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+  const top = new THREE.Mesh(geo, mat); top.frustumCulled = false; STOCK.group.add(top);
+  Object.assign(STOCK, { top, aPos, aNor, aCol, pos, nor, col, vx, zv: new Float32Array(nv).fill(sim.zTop), zvF: new Float32Array(nv) });
+  computeZV(S.finalH, STOCK.zvF, 0, nx, 0, ny);
+
+  // side walls follow the outline of the top surface
+  const per = [];
+  for (let i = 0; i < nx; i++) per.push([i, 0, 0, -1]);
+  for (let j = 0; j < ny; j++) per.push([nx, j, 1, 0]);
+  for (let i = nx; i > 0; i--) per.push([i, ny, 0, 1]);
+  for (let j = ny; j > 0; j--) per.push([0, j, -1, 0]);
+  const m = per.length, sp = new Float32Array(m * 6), sn = new Float32Array(m * 6), sc = new Float32Array(m * 6), si = new Uint32Array(m * 6);
+  per.forEach((p, k) => {
+    const x = sim.x0 + p[0] * sim.dx, y = sim.y0 + p[1] * sim.dy;
+    for (let s = 0; s < 2; s++) {
+      const o = (2 * k + s) * 3;
+      sp[o] = x; sp[o + 1] = y; sp[o + 2] = s ? sim.zBot : sim.zTop; sn[o] = p[2]; sn[o + 1] = p[3];
+      sc[o] = STEEL[0]; sc[o + 1] = STEEL[1]; sc[o + 2] = STEEL[2];
+    }
+    const k1 = (k + 1) % m, t = 2 * k, b = 2 * k + 1, t1 = 2 * k1, b1 = 2 * k1 + 1;
+    si.set([t, b, b1, t, b1, t1], k * 6);
+  });
+  const sg = new THREE.BufferGeometry();
+  const aSp = new THREE.BufferAttribute(sp, 3).setUsage(THREE.DynamicDrawUsage);
+  sg.setAttribute('position', aSp); sg.setAttribute('normal', new THREE.BufferAttribute(sn, 3)); sg.setAttribute('color', new THREE.BufferAttribute(sc, 3)); sg.setIndex(new THREE.BufferAttribute(si, 1));
+  const skirt = new THREE.Mesh(sg, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })); skirt.frustumCulled = false;
+  STOCK.group.add(skirt); Object.assign(STOCK, { per, sp, aSp });
+
+  // underside
+  const x0 = sim.x0, x1 = sim.x0 + nx * sim.dx, y0 = sim.y0, y1 = sim.y0 + ny * sim.dy, zb = sim.zBot;
+  const bg = new THREE.BufferGeometry();
+  bg.setAttribute('position', new THREE.BufferAttribute(new Float32Array([x0, y0, zb, x1, y0, zb, x1, y1, zb, x0, y1, zb]), 3));
+  bg.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1]), 3));
+  bg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(12).fill(0.4), 3));
+  bg.setIndex([0, 1, 2, 0, 2, 3]);
+  STOCK.group.add(new THREE.Mesh(bg, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+
+  // outline of the original stock block
+  const W = x1 - x0, H = y1 - y0, T = sim.zTop - sim.zBot;
+  const ghost = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(W, H, T)), new THREE.LineBasicMaterial({ color: 0x8595a6, transparent: true, opacity: 0.6 }));
+  ghost.position.set(x0 + W / 2, y0 + H / 2, sim.zBot + T / 2); ghost.visible = S.ghost;
+  STOCK.group.add(ghost); STOCK.ghost = ghost;
+}
+const TOOL_RGB = new Map();
+function paint(vi0, vi1, vj0, vj1) {
+  const sim = S.sim, nx = sim.nx, ny = sim.ny, vx = nx + 1, dx = sim.dx, dy = sim.dy;
+  const { zv, zvF, pos, nor, col } = STOCK, h = sim.h, ops = sim.op, progress = S.mode === 'progress', P = S.prog;
+  for (let j = vj0; j <= vj1; j++) {
+    const jl = j > 0 ? j - 1 : j, jr = j < ny ? j + 1 : j;
+    for (let i = vi0; i <= vi1; i++) {
+      const k = j * vx + i, il = i > 0 ? i - 1 : i, ir = i < nx ? i + 1 : i;
+      pos[k * 3 + 2] = zv[k];
+      const gx = (zv[j * vx + ir] - zv[j * vx + il]) / ((ir - il) * dx), gy = (zv[jr * vx + i] - zv[jl * vx + i]) / ((jr - jl) * dy);
+      const inv = 1 / Math.sqrt(gx * gx + gy * gy + 1);
+      nor[k * 3] = -gx * inv; nor[k * 3 + 1] = -gy * inv; nor[k * 3 + 2] = inv;
+      let c;
+      if (progress) {
+        const t = clamp((zv[k] - zvF[k]) / 0.06, 0, 1);
+        col[k * 3] = GREEN[0] + (BLUE[0] - GREEN[0]) * t; col[k * 3 + 1] = GREEN[1] + (BLUE[1] - GREEN[1]) * t; col[k * 3 + 2] = GREEN[2] + (BLUE[2] - GREEN[2]) * t;
+      } else {
+        const ja = j > 0 ? j - 1 : 0, jb = j < ny ? j : ny - 1, ia = i > 0 ? i - 1 : 0, ib = i < nx ? i : nx - 1;
+        let best = ja * nx + ia, bh = h[best], t2 = ja * nx + ib;
+        if (h[t2] < bh) { bh = h[t2]; best = t2; }
+        t2 = jb * nx + ia; if (h[t2] < bh) { bh = h[t2]; best = t2; }
+        t2 = jb * nx + ib; if (h[t2] < bh) { best = t2; }
+        const o = ops[best];
+        c = o ? TOOL_RGB.get(P.ops[o - 1].tool) || NEUTRAL : NEUTRAL;
+        col[k * 3] = c[0]; col[k * 3 + 1] = c[1]; col[k * 3 + 2] = c[2];
+      }
+    }
+  }
+}
+function refreshStock(full) {
+  const sim = S.sim; if (!sim || !STOCK.top) return;
+  let i0 = sim.di0, i1 = sim.di1, j0 = sim.dj0, j1 = sim.dj1;
+  if (full) { i0 = 0; i1 = sim.nx - 1; j0 = 0; j1 = sim.ny - 1; }
+  if (i1 < i0 || j1 < j0) return;
+  const nx = sim.nx, ny = sim.ny, vx = nx + 1;
+  const v1i = Math.min(nx, i1 + 1), v1j = Math.min(ny, j1 + 1);
+  computeZV(sim.h, STOCK.zv, i0, v1i, j0, v1j);
+  const p0i = Math.max(0, i0 - 1), p1i = Math.min(nx, v1i + 1), p0j = Math.max(0, j0 - 1), p1j = Math.min(ny, v1j + 1);
+  paint(p0i, p1i, p0j, p1j);
+  const off = full ? 0 : p0j * vx * 3, cnt = full ? -1 : (p1j - p0j + 1) * vx * 3;
+  for (const a of [STOCK.aPos, STOCK.aNor, STOCK.aCol]) { a.updateRange.offset = off; a.updateRange.count = cnt; a.needsUpdate = true; }
+  const zv = STOCK.zv, sp = STOCK.sp;
+  STOCK.per.forEach((p, k) => { sp[(2 * k) * 3 + 2] = zv[p[1] * vx + p[0]]; });
+  STOCK.aSp.needsUpdate = true;
+  sim.clearDirty(); invalidate();
+}
+
+/* ---------- tools ---------- */
+const toolGroups = new Map();
+const toolScene = new THREE.Group(); scene.add(toolScene);
+function latheZ(points, segs, mat) {
+  const g = new THREE.LatheGeometry(points.map(p => new THREE.Vector2(Math.max(p[0], 0.001), p[1])), segs);
+  g.rotateX(Math.PI / 2);
+  return new THREE.Mesh(g, mat);
+}
+function cutterProfile(t) {
+  const R = t.D / 2, Lc = t.flute, T = NC.simTool(t), pr = [];
+  if (t.type === 'ball') { for (let a = 0; a <= 90; a += 10) { const r = a * Math.PI / 180; pr.push([R * Math.sin(r), R - R * Math.cos(r)]); } }
+  else if (t.type === 'bull') { pr.push([0, 0], [T.r0, 0]); for (let a = 10; a <= 90; a += 10) { const r = a * Math.PI / 180; pr.push([T.r0 + T.rc * Math.sin(r), T.rc - T.rc * Math.cos(r)]); } }
+  else if (t.type === 'drill' || t.type === 'chamfer') { pr.push([0, 0]); if (T.r0 > 0) pr.push([T.r0, 0]); pr.push([R, (R - T.r0) * T.slope]); }
+  else pr.push([0, 0], [R, 0]);
+  pr.push([R, Lc]);
+  return pr;
+}
+function makeToolGroup(t) {
+  const g = new THREE.Group();
+  const side = THREE.DoubleSide;
+  g.add(latheZ(cutterProfile(t), 32, new THREE.MeshLambertMaterial({ color: new THREE.Color(toolHex(t.no)), side })));
+  g.add(latheZ([[t.D / 2, t.flute], [t.D / 2, t.stick]], 32, new THREE.MeshLambertMaterial({ color: 0xaab4bf, side })));
+  const hp = [[0.001, t.stick]]; let y = t.stick;
+  for (const s of NC.holderSegments(t)) { hp.push([s.d0 / 2, y]); y += s.h; hp.push([s.d1 / 2, y]); }
+  hp.push([0.001, y]);
+  const holder = latheZ(hp, 40, new THREE.MeshLambertMaterial({ color: 0x505a65, side }));
+  holder.visible = S.holder; g.userData.holder = holder; g.add(holder);
+  g.visible = false; g.frustumCulled = false;
+  return g;
+}
+function buildToolGroups() {
+  clearGroup(toolScene); toolGroups.clear(); S.hudTool = -1; S.activeTool = null;
+  TOOL_RGB.clear();
+  for (const t of S.tools) { toolGroups.set(t.no, makeToolGroup(t)); toolScene.add(toolGroups.get(t.no)); TOOL_RGB.set(t.no, hexRGB(toolHex(t.no))); }
+}
+function toolPos(i, f) {
+  const P = S.prog, n = P.n, ii = Math.min(i, n - 1), ff = i >= n ? 1 : f;
+  const sx = ii > 0 ? P.X[ii - 1] : P.init.x, sy = ii > 0 ? P.Y[ii - 1] : P.init.y, sz = ii > 0 ? P.Z[ii - 1] : P.init.z;
+  return [sx + (P.X[ii] - sx) * ff, sy + (P.Y[ii] - sy) * ff, sz + (P.Z[ii] - sz) * ff, ii];
+}
+function updateTool() {
+  const P = S.prog; if (!P || !P.n) return;
+  const [x, y, z, ii] = toolPos(S.cur.i, S.cur.f), no = P.TL[ii];
+  if (S.activeTool !== no) { const a = toolGroups.get(S.activeTool); if (a) a.visible = false; S.activeTool = no; }
+  const g = toolGroups.get(no); if (!g) return;
+  g.visible = true;
+  if (g.position.x !== x || g.position.y !== y || g.position.z !== z || S.toolShown !== no) { g.position.set(x, y, z); S.toolShown = no; invalidate(); }
+}
+
+/* ---------- workholding from the Fusion export script ---------- */
+const fixScene = new THREE.Group(); scene.add(fixScene);
+function buildFixtures() {
+  clearGroup(fixScene);
+  for (const f of (S.setup && S.setup.fixtures) || []) {
+    if (!f.positions || !f.indices || f.positions.length < 9) continue;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(f.positions), 3));
+    g.setIndex(new THREE.BufferAttribute(Uint32Array.from(f.indices), 1));
+    g.computeVertexNormals();
+    const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: 0x8592a0, side: THREE.DoubleSide }));
+    m.frustumCulled = false; fixScene.add(m);
+  }
+  fixScene.visible = S.fixtures; invalidate();
+}
+const stockFromSetup = s => ({ xmin: s.xmin, xmax: s.xmax, ymin: s.ymin, ymax: s.ymax, zbot: s.zmin, ztop: s.zmax });
+// Cross-checks so a wrong placement announces itself instead of silently drawing the vise in the wrong place.
+function checkSetup(P, st, setup) {
+  const out = [];
+  if (!setup) return out;
+  const R = Math.max(...P.tools.map(t => t.D / 2)); let near = 0, n = 0;
+  for (let i = 0; i < P.n; i++) if (P.K[i]) {
+    n++;
+    if (P.X[i] > st.xmin - R && P.X[i] < st.xmax + R && P.Y[i] > st.ymin - R && P.Y[i] < st.ymax + R && P.Z[i] > st.zbot - 1 && P.Z[i] < st.ztop + 1) near++;
+  }
+  if (n && near / n < 0.5) out.push(`Only ${Math.round(100 * near / n)}% of the cutting moves are inside the stock box. Either this setup file belongs to a different setup, or its coordinates do not line up with the program.`);
+  // How deep does workholding sink into the stock? Pins and clamps entering by a few mm are normal;
+  // a fixture in the wrong place sinks in much further. Sample across each triangle, because a big flat
+  // vise face has almost no vertices to test.
+  let depth = 0;
+  for (const f of setup.fixtures || []) {
+    const p = f.positions, ix = f.indices;
+    for (let t = 0; t + 2 < ix.length; t += 3) {
+      const a0 = ix[t] * 3, b0 = ix[t + 1] * 3, c0 = ix[t + 2] * 3;
+      if (Math.max(p[a0], p[b0], p[c0]) < st.xmin || Math.min(p[a0], p[b0], p[c0]) > st.xmax || Math.max(p[a0 + 1], p[b0 + 1], p[c0 + 1]) < st.ymin || Math.min(p[a0 + 1], p[b0 + 1], p[c0 + 1]) > st.ymax || Math.max(p[a0 + 2], p[b0 + 2], p[c0 + 2]) < st.zbot || Math.min(p[a0 + 2], p[b0 + 2], p[c0 + 2]) > st.ztop) continue;
+      const n = Math.min(24, Math.max(1, Math.ceil(Math.max(Math.hypot(p[b0] - p[a0], p[b0 + 1] - p[a0 + 1], p[b0 + 2] - p[a0 + 2]), Math.hypot(p[c0] - p[a0], p[c0 + 1] - p[a0 + 1], p[c0 + 2] - p[a0 + 2])) / 2)));
+      for (let i = 0; i <= n; i++) for (let j = 0; j <= n - i; j++) {
+        const s = i / n, r = j / n, w = 1 - s - r, x = w * p[a0] + s * p[b0] + r * p[c0], y = w * p[a0 + 1] + s * p[b0 + 1] + r * p[c0 + 1], z = w * p[a0 + 2] + s * p[b0 + 2] + r * p[c0 + 2];
+        const dp = Math.min(x - st.xmin, st.xmax - x, y - st.ymin, st.ymax - y, z - st.zbot, st.ztop - z);
+        if (dp > depth) depth = dp;
+      }
+    }
+  }
+  if (depth > 5) out.push(`Workholding sinks ${depth.toFixed(1)} mm into the stock box, so the fixture position may be off. (Pins and clamps entering the stock by a few mm are normal.)`);
+  // Workholding should touch or nearly touch the stock. If nothing is close, it is probably in different coordinates.
+  const fxs = setup.fixtures || [];
+  if (fxs.length) {
+    let best = 1e9;
+    for (const f of fxs) {
+      const q = f.positions; let lx = 1e9, ly = 1e9, lz = 1e9, hx = -1e9, hy = -1e9, hz = -1e9;
+      for (let i = 0; i < q.length; i += 3) { if (q[i] < lx) lx = q[i]; if (q[i] > hx) hx = q[i]; if (q[i + 1] < ly) ly = q[i + 1]; if (q[i + 1] > hy) hy = q[i + 1]; if (q[i + 2] < lz) lz = q[i + 2]; if (q[i + 2] > hz) hz = q[i + 2]; }
+      best = Math.min(best, Math.hypot(Math.max(0, lx - st.xmax, st.xmin - hx), Math.max(0, ly - st.ymax, st.ymin - hy), Math.max(0, lz - st.ztop, st.zbot - hz)));
+    }
+    if (best > 5) out.push(`The nearest workholding part is ${Math.round(best)} mm from the stock box, so it is probably in different coordinates and is not drawn where the stock is.`);
+  }
+  if (setup.stockMode != null && setup.stockMode !== 0 && setup.stockMode !== 1) out.push('This setup uses solid or previous-setup stock. Only its bounding box is used here.');
+  if (setup.check && setup.check.status === 'mismatch') out.push('The export script found the part outside the stock box once moved into setup coordinates, so its transform may be wrong.');
+  return out;
+}
+
+/* ---------- toolpath lines ---------- */
+const PATH = { feed: null, rapid: null };
+function buildPaths() {
+  for (const k of ['feed', 'rapid']) if (PATH[k]) { scene.remove(PATH[k]); PATH[k].geometry.dispose(); PATH[k].material.dispose(); PATH[k] = null; }
+  const P = S.prog, n = P.n, fp = new Float32Array(n * 6), rp = new Float32Array(n * 6);
+  let px = P.init.x, py = P.init.y, pz = P.init.z;
+  for (let i = 0; i < n; i++) {
+    const x = P.X[i], y = P.Y[i], z = P.Z[i], on = P.K[i] ? fp : rp, off = P.K[i] ? rp : fp, o = i * 6;
+    on[o] = px; on[o + 1] = py; on[o + 2] = pz; on[o + 3] = x; on[o + 4] = y; on[o + 5] = z;
+    off[o] = x; off[o + 1] = y; off[o + 2] = z; off[o + 3] = x; off[o + 4] = y; off[o + 5] = z;
+    px = x; py = y; pz = z;
+  }
+  const mk = (arr, color, opacity) => {
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+    const l = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false }));
+    l.frustumCulled = false; l.renderOrder = 5; scene.add(l); return l;
+  };
+  PATH.feed = mk(fp, 0x14b8d8, 0.85); PATH.rapid = mk(rp, 0xf29d1f, 0.45);
+  applyPaths();
+}
+function opRange(k) {
+  const P = S.prog, a = P.ops[k].move, b = k + 1 < P.ops.length ? P.ops[k + 1].move : P.n;
+  return [a, b];
+}
+function applyPaths() {
+  if (!PATH.feed) return;
+  const P = S.prog; let a = 0, b = P.n;
+  if (S.path === 'op' && S.curOp >= 0 && P.ops.length) [a, b] = opRange(S.curOp);
+  for (const k of ['feed', 'rapid']) {
+    PATH[k].geometry.setDrawRange(a * 2, (b - a) * 2);
+    PATH[k].visible = S.path !== 'off' && (k === 'feed' || S.rapids);
+  }
+  invalidate();
+}
+
+/* ---------- probe (click the stock to see which tool machined it) ---------- */
+const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function pickAt(cx, cy) {
+  const sim = S.sim; if (!sim || !S.ready) return;
+  const r = cv.getBoundingClientRect();
+  ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  const o = raycaster.ray.origin, d = raycaster.ray.direction;
+  let t0 = 0, t1 = 1e9;
+  const slabs = [[sim.x0, sim.x0 + sim.nx * sim.dx, o.x, d.x], [sim.y0, sim.y0 + sim.ny * sim.dy, o.y, d.y], [sim.zBot, sim.zTop, o.z, d.z]];
+  for (const [lo, hi, oo, dd] of slabs) {
+    if (Math.abs(dd) < 1e-9) { if (oo < lo || oo > hi) return hideProbe(); }
+    else { let a = (lo - oo) / dd, c = (hi - oo) / dd; if (a > c) { const q = a; a = c; c = q; } if (a > t0) t0 = a; if (c < t1) t1 = c; if (t0 > t1) return hideProbe(); }
+  }
+  const step = Math.min(sim.dx, sim.dy) * 0.5;
+  for (let t = t0; t <= t1; t += step) {
+    const x = o.x + d.x * t, y = o.y + d.y * t, z = o.z + d.z * t;
+    const i = Math.floor((x - sim.x0) / sim.dx), j = Math.floor((y - sim.y0) / sim.dy);
+    if (i < 0 || j < 0 || i >= sim.nx || j >= sim.ny) continue;
+    if (z <= sim.h[j * sim.nx + i] + 1e-4) return showProbe(i, j, cx - r.left, cy - r.top);
+  }
+  hideProbe();
+}
+function hideProbe() { $('probe').hidden = true; }
+function showProbe(i, j, px, py) {
+  const sim = S.sim, P = S.prog, idx = j * sim.nx + i, box = $('probe');
+  const live = sim.op[idx], fin = S.finalOp[idx], z = sim.h[idx], left = z - S.finalH[idx];
+  const X = sim.x0 + (i + 0.5) * sim.dx, Y = sim.y0 + (j + 0.5) * sim.dy;
+  let head, body = '', btn = '', opk = -1;
+  const oname = k => `T${P.ops[k].tool}, ${esc(P.ops[k].label)}`;
+  if (live) { opk = live - 1; head = 'Machined by ' + oname(opk); body = left > 0.02 ? `${left.toFixed(2)} mm of material still to come off here.` : 'At its final depth for this program.'; btn = 'Replay this operation'; }
+  else if (fin) { opk = fin - 1; head = 'Not cut yet'; body = 'Will be machined by ' + oname(opk) + '.'; btn = 'Jump to that operation'; }
+  else { head = 'Original stock surface'; body = 'This program never touches this spot.'; }
+  box.innerHTML = `<h3>${head}</h3><p>${body}<br>X ${X.toFixed(2)}  Y ${Y.toFixed(2)}  Z ${z.toFixed(2)}</p><div class="row">${btn ? '<button class="btn primary" id="probeGo" type="button">' + btn + '</button>' : ''}<button class="btn" id="probeX" type="button">Close</button></div>`;
+  box.hidden = false;
+  const w = vp.clientWidth, h = vp.clientHeight;
+  box.style.left = clamp(px + 14, 8, Math.max(8, w - 286)) + 'px'; box.style.top = clamp(py + 14, 8, Math.max(8, h - box.offsetHeight - 8)) + 'px';
+  $('probeX').onclick = hideProbe;
+  if (btn) $('probeGo').onclick = () => { hideProbe(); goToOp(opk); S.playing = true; updatePlay(); };
+}
+
+/* ================= program loading and simulation ================= */
+function toast(msg, ms = 5000) {
+  const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.hidden = true; }, ms);
+}
+function showBusy(txt, frac) { $('busy').hidden = false; setText($('busyTxt'), txt); $('busyBar').style.width = Math.round(clamp(frac, 0, 1) * 100) + '%'; }
+function hideBusy() { $('busy').hidden = true; }
+const readFile = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(r.error); r.readAsText(f); });
+
+function autoStock() {
+  const P = S.prog, b = P.bounds, r2 = v => Math.round(v * 100) / 100;
+  const ztop = b.zmin < -0.001 ? 0 : r2(b.zmax), cs = S.csv && S.csv.stock;
+  if (cs) {   // size from the setup sheet, centred on the cutting area; top at the highest cutting Z
+    const cx = (b.xmin + b.xmax) / 2, cy = (b.ymin + b.ymax) / 2;
+    S.stock = { xmin: r2(cx - cs.x / 2), xmax: r2(cx + cs.x / 2), ymin: r2(cy - cs.y / 2), ymax: r2(cy + cs.y / 2), ztop, zbot: r2(ztop - cs.z) };
+    return;
+  }
+  const rmax = Math.max(...P.tools.map(t => t.D / 2)), pad = rmax + 4, depth = Math.max(ztop - b.zmin, 1);
+  S.stock = {
+    xmin: Math.floor(b.xmin - pad), xmax: Math.ceil(b.xmax + pad), ymin: Math.floor(b.ymin - pad), ymax: Math.ceil(b.ymax + pad),
+    ztop, zbot: Math.round((Math.min(b.zmin, ztop - 1) - Math.max(3, depth * 0.5)) * 10) / 10,
+  };
+}
+function fillStockInputs() { for (const k of ['xmin', 'xmax', 'ymin', 'ymax', 'zbot', 'ztop']) $('s' + k).value = S.stock[k]; }
+function readStockInputs() {
+  const s = {}; for (const k of ['xmin', 'xmax', 'ymin', 'ymax', 'zbot', 'ztop']) s[k] = parseFloat($('s' + k).value);
+  if (Object.values(s).some(v => !isFinite(v)) || s.xmax - s.xmin < 1 || s.ymax - s.ymin < 1 || s.ztop - s.zbot < 0.5) return null;
+  return s;
+}
+
+const readBuf = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsArrayBuffer(f); });
+
+async function loadText(text, name, opts = {}) {
+  try {
+    const un = $('unitSel').value;
+    const P = NC.parseProgram(text, { units: un === 'auto' ? undefined : un });
+    if (!P.n) { toast('No tool motion found in that file. Is it a G-code program?'); return; }
+    const csv = opts.csv || null, lib = opts.lib || null, setup = opts.setup || null, info = [];
+    if (csv) { const n = NC.applyCsvTools(P.tools, csv); info.push(`Setup sheet: ${n} tool${n === 1 ? '' : 's'} sized from it.`); }
+    if (opts.tools) for (const o of opts.tools) { const t = P.tools.find(x => x.no === o.no); if (t) { Object.assign(t, o); t.defaulted = false; NC.completeTool(t); } }
+    if (lib) { const n = NC.applyLibrary(lib, P.tools); info.push(`Tool library: matched ${n} of ${P.tools.length} tools, holders included.`); }
+    const opsList = opts.ops || (csv && csv.ops) || null, extraWarn = [];
+    if (opsList) {
+      const same = opsList.length === P.ops.length && opsList.every((o, i) => o.tool === P.ops[i].tool);
+      if (same) P.ops.forEach((o, i) => { if (opsList[i].label) o.label = opsList[i].label; });
+      else if (opts.ops) extraWarn.push(`The job file lists ${opsList.length} operations but the program has ${P.ops.length}, so operation names come from the program's own comments. The file may be out of date.`);
+    }
+    S.ready = false; S.playing = false; updatePlay(); S.curOp = -1; S.cur = { i: 0, f: 0 }; S.tau = 0;
+    S.text = text; S.csv = csv; S.lib = lib; S.setup = setup; S.opsList = opts.ops || null; S.exported = opts.exported || null; S.docName = opts.document || null;
+    S.prog = P; S.name = name; S.tools = P.tools; S.toolsDirty = false;
+    setText($('fname'), name + (opts.exported ? '   exported ' + opts.exported.slice(0, 16).replace('T', ' ') : ''));
+    if (opts.stock) S.stock = Object.assign({}, opts.stock); else if (setup && setup.stock) S.stock = stockFromSetup(setup.stock); else autoStock();
+    fillStockInputs(); buildToolCards(); buildOps(); buildTicks(); buildPaths();
+    if (setup) info.push(`Setup file "${setup.setup || 'setup'}": ${setup.stock ? 'stock box from Fusion' : 'no stock box, using a guess'}, ${(setup.fixtures || []).length} workholding part${(setup.fixtures || []).length === 1 ? '' : 's'}.`);
+    if (opts.exported) info.push('Job file exported ' + opts.exported.replace('T', ' ') + (opts.document ? ' from "' + opts.document + '"' : '') + '.');
+    const lines = info.concat(P.notes), warnList = P.warnings.concat(extraWarn, checkSetup(P, S.stock, setup));
+    $('warns').innerHTML = lines.map(esc).join('<br>') + (warnList.length ? (lines.length ? '<br>' : '') + '<b>Heads up</b><br>' + warnList.map(esc).join('<br>') : '');
+    await rebuild(true);
+  } catch (err) { console.error(err); hideBusy(); toast('Could not read that program: ' + err.message); }
+}
+// Accepts any mix of: G-code program, setup-sheet CSV, Fusion .tools / tool-library JSON, job bundle JSON.
+async function handleFiles(files) {
+  const b = { text: null, name: '', csv: null, lib: null, bundle: null, setup: null, job: null };
+  for (const f of files) {
+    try {
+      const n = f.name;
+      if (/\.tools$/i.test(n)) b.lib = JSON.parse(await NC.unzipText(await readBuf(f)));
+      else if (/\.csv$/i.test(n)) { b.csv = NC.parseSetupCsv(await readFile(f)); if (!b.csv) toast(n + ' does not look like a setup sheet, so it was skipped.'); }
+      else {
+        const text = await readFile(f);
+        if (/\.json$/i.test(n) || /^\s*[\[{]/.test(text.slice(0, 20))) { const j = JSON.parse(text); if (j && j.format === 'floorsim-job') b.job = j; else if (j && typeof j.gcode === 'string') b.bundle = j; else if (j && j.format === 'floorsim-setup') b.setup = j; else b.lib = j; }
+        else { b.text = text; b.name = n; }
+      }
+    } catch (err) { console.error(err); toast('Could not open ' + f.name + ': ' + err.message); }
+  }
+  if (b.job) return loadText(b.job.gcode, b.job.program || 'Job', { setup: b.job, lib: b.job.toolLibrary, ops: b.job.ops, exported: b.job.exported, document: b.job.document });
+  if (b.bundle) return loadText(b.bundle.gcode, b.bundle.name || 'Job bundle', { stock: b.bundle.stock, tools: b.bundle.tools, csv: b.csv, lib: b.lib, setup: b.setup });
+  if (b.text) return loadText(b.text, b.name, { csv: b.csv, lib: b.lib, setup: b.setup });
+  if ((b.csv || b.lib || b.setup) && S.text) return loadText(S.text, S.name, { csv: b.csv || S.csv, lib: b.lib || S.lib, setup: b.setup || S.setup, ops: S.opsList, exported: S.exported, document: S.docName });
+  if (b.csv || b.lib || b.setup) toast('Open the program (.NC) first, or select it together with the CSV, .tools and setup files.');
+}
+
+async function prepass(token) {
+  const P = S.prog, sim = S.sim, n = P.n;
+  sim.reset();
+  const bytes = sim.nx * sim.ny * 6, maxSnaps = clamp(Math.floor(90e6 / bytes), 6, 60), every = Math.max(64, Math.ceil(n / maxSnaps));
+  const snaps = [], t0 = performance.now(); let last = t0;
+  for (let i = 0; i < n; i++) {
+    if (i % every === 0) snaps.push(Object.assign({ i }, sim.snapshot()));
+    NC.cutMove(sim, P, S.simTools, i, 0, 1);
+    if ((i & 15) === 15) {
+      const now = performance.now();
+      if (now - last > 30) { showBusy('Simulating the whole program', i / n); await new Promise(r => setTimeout(r, 0)); if (token !== S.token) return null; last = performance.now(); }
+    }
+  }
+  return { snaps, finalH: sim.h.slice(), finalOp: sim.op.slice(), ms: performance.now() - t0 };
+}
+async function rebuild(fresh) {
+  const token = ++S.token; S.ready = false; S.playing = false; updatePlay(); hideProbe();
+  const box = readStockInputs();
+  if (!box) { toast('Check the stock box: each max must be larger than its min.'); hideBusy(); return; }
+  S.stock = box;
+  showBusy('Preparing simulation', 0);
+  await new Promise(r => setTimeout(r, 30));
+  S.simTools = new Map(S.tools.map(t => [t.no, NC.simTool(t)]));
+  S.sim = new NC.HeightSim({ xmin: box.xmin, xmax: box.xmax, ymin: box.ymin, ymax: box.ymax, zbot: box.zbot, ztop: box.ztop }, S.res);
+  let r;
+  try { r = await prepass(token); } catch (err) { console.error(err); hideBusy(); toast('Simulation failed: ' + err.message); return; }
+  if (!r || token !== S.token) return;
+  S.snaps = r.snaps; S.finalH = r.finalH; S.finalOp = r.finalOp; S.stats = { ms: r.ms, moves: S.prog.n, nx: S.sim.nx, ny: S.sim.ny, dx: S.sim.dx };
+  buildToolGroups(); buildStock(); buildFixtures();
+  S.sim.restore(S.snaps[0]); S.cur = { i: 0, f: 0 }; S.tau = 0; S.curOp = -1; S.hudLine = -1; S.hudTool = -1;
+  refreshStock(true); updateTool(); applyPaths(); buildLegend();
+  if (fresh || !S.camSet) { setView('fit'); S.camSet = true; }
+  const target = S.prog.total / 30;
+  const opts = [...$('speedSel').options].map(o => +o.value);
+  if (fresh) { S.speed = opts.reduce((a, b) => (Math.abs(Math.log(b / target)) < Math.abs(Math.log(a / target)) ? b : a)); $('speedSel').value = String(S.speed); }
+  hideBusy(); S.ready = true; updateHud(true); updateChips(true);
+}
+
+/* ---------- playback ---------- */
+function advance(target, budget) {
+  const P = S.prog, cum = P.cumT, n = P.n, t0 = performance.now();
+  let { i, f } = S.cur, cnt = 0; S.limited = false;
+  while (i < n) {
+    const s0 = i > 0 ? cum[i - 1] : 0, e0 = cum[i], dur = e0 - s0;
+    if (target >= e0 || dur <= 1e-12) {
+      NC.cutMove(S.sim, P, S.simTools, i, f, 1); i++; f = 0; S.tau = e0;
+      if ((++cnt & 7) === 0 && performance.now() - t0 > budget) { S.limited = true; break; }
+    } else {
+      const nf = (target - s0) / dur;
+      if (nf > f) { NC.cutMove(S.sim, P, S.simTools, i, f, nf); f = nf; }
+      S.tau = target; break;
+    }
+  }
+  S.cur = { i, f };
+  if (i >= P.n) S.tau = P.total;
+}
+function locate(tau) {
+  const cum = S.prog.cumT, n = S.prog.n; let lo = 0, hi = n;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (cum[m] < tau) lo = m + 1; else hi = m; }
+  if (lo >= n) return { i: n, f: 0 };
+  const s0 = lo > 0 ? cum[lo - 1] : 0, dur = cum[lo] - s0;
+  return { i: lo, f: dur > 0 ? clamp((tau - s0) / dur, 0, 1) : 1 };
+}
+function goTo(tau) {
+  const P = S.prog; tau = clamp(tau, 0, P.total);
+  const tgt = locate(tau), cur = S.cur;
+  let snap = null; for (const s of S.snaps) if (s.i <= tgt.i) snap = s; else break;
+  const back = tgt.i < cur.i || (tgt.i === cur.i && tgt.f < cur.f);
+  if (snap && (back || snap.i > cur.i)) { S.sim.restore(snap); S.cur = { i: snap.i, f: 0 }; S.tau = snap.i > 0 ? P.cumT[snap.i - 1] : 0; }
+  advance(tau, 220);
+  if (S.tau < tau - 1e-6 && S.cur.i < P.n) S.pendingSeek = tau;
+}
+const opStart = k => { const P = S.prog, m = P.ops[k].move; return m > 0 ? P.cumT[m - 1] : 0; };
+function goToOp(k) { if (!S.ready) return; S.pendingSeek = opStart(clamp(k, 0, S.prog.ops.length - 1)); S.playing = false; updatePlay(); }
+function togglePlay() {
+  if (!S.ready) return;
+  if (!S.playing && S.tau >= S.prog.total - 1e-6) S.pendingSeek = 0;
+  S.playing = !S.playing; updatePlay();
+}
+function updatePlay() {
+  $('playIcon').innerHTML = S.playing ? '<path d="M6 4.5h4.2v15H6zM13.8 4.5H18v15h-4.2z"/>' : '<path d="M7 4.5v15L19.5 12z"/>';
+  $('bPlay').setAttribute('aria-label', S.playing ? 'Pause' : 'Play');
+}
+
+/* ================= operator panel ================= */
+function toolLabel(t) {
+  const ty = { flat: 'Flat end mill', ball: 'Ball end mill', bull: 'Bull nose end mill', drill: 'Drill', chamfer: 'Chamfer mill' }[t.type] || t.type;
+  return t.name && !/^T\d+$/.test(t.name) && t.name.toLowerCase() !== ty.toLowerCase() ? t.name : ty;
+}
+function toolSVG(t) {
+  const cap = t.stick + 30, H = cap, s = Math.min(100 / H, 50 / Math.max(t.holderD, t.D)), cx = 29, base = 103;
+  const P = (pts, fill) => {
+    const r = pts.map(p => [cx + p[0] * s, base - p[1] * s]), l = pts.slice().reverse().map(p => [cx - p[0] * s, base - p[1] * s]);
+    return `<polygon points="${r.concat(l).map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ')}" fill="${fill}" stroke="rgba(0,0,0,.35)" stroke-width=".8"/>`;
+  };
+  const hp = [[0, t.stick]]; let y = t.stick;
+  for (const sg of NC.holderSegments(t)) {
+    if (y >= cap) break;
+    const y2 = Math.min(y + sg.h, cap), f = sg.h > 0 ? (y2 - y) / sg.h : 1;
+    hp.push([sg.d0 / 2, y]); hp.push([sg.d0 / 2 + (sg.d1 / 2 - sg.d0 / 2) * f, y2]); y = y2;
+  }
+  hp.push([0, y]);
+  return P(hp, '#505a65') + P([[0, t.flute], [t.D / 2, t.flute], [t.D / 2, t.stick], [0, t.stick]], '#aab4bf') + P(cutterProfile(t).concat([[0, t.flute]]), toolHex(t.no));
+}
+function coolText(c) { const a = []; if (c & 1) a.push('Flood'); if (c & 2) a.push('Mist'); if (c & 4) a.push('Thru-spindle'); return a.length ? a.join(' + ') : 'Off'; }
+let lastHud = 0;
+function updateHud(force) {
+  const P = S.prog; if (!P || !P.n) return;
+  const now = performance.now(); if (!force && now - lastHud < 90) return; lastHud = now;
+  const [x, y, z, i] = toolPos(S.cur.i, S.cur.f), no = P.TL[i], t = S.tools.find(q => q.no === no);
+  if (no !== S.hudTool && t) {
+    S.hudTool = no;
+    setText($('tNo'), no ? 'T' + no : 'T-');
+    setText($('tName'), toolLabel(t));
+    setText($('tDims'), `Ø${+t.D.toFixed(3)} mm` + (t.type === 'bull' ? `, R${+t.rc.toFixed(2)}` : '') + `, flute ${+t.flute.toFixed(1)}`);
+    $('tSvg').innerHTML = toolSVG(t);
+  }
+  setText($('rSpin'), Math.round(P.S[i]));
+  const rapid = !P.K[i];
+  setText($('rFeedL'), rapid ? 'Moving' : 'Feed mm/min'); setText($('rFeed'), rapid ? 'Rapid' : Math.round(P.F[i]));
+  setText($('rCool'), coolText(P.CO[i]));
+  if (P.OP[i] !== S.curOp) { S.curOp = P.OP[i]; onOpChange(); }
+  const op = P.ops[S.curOp];
+  setText($('opNow'), op ? op.label : ''); setText($('opSub'), `Operation ${S.curOp + 1} of ${P.ops.length}`);
+  setText($('pX'), x.toFixed(3)); setText($('pY'), y.toFixed(3)); setText($('pZ'), z.toFixed(3));
+  setText($('timeTxt'), mmss(S.tau) + ' / ' + mmss(P.total));
+  if (!S.scrubbing) $('scrub').value = P.total > 0 ? Math.round(S.tau / P.total * 10000) : 0;
+  if (P.LN[i] !== S.hudLine) { S.hudLine = P.LN[i]; renderCode(S.hudLine); }
+}
+function renderCode(ln) {
+  const L = S.prog.lines, a = Math.max(1, ln - 6), b = Math.min(L.length, a + 12); let h = '';
+  for (let k = a; k <= b; k++) h += `<div class="ln${k === ln ? ' cur' : ''}"><i>${k}</i><span>${esc(L[k - 1])}</span></div>`;
+  $('code').innerHTML = h;
+}
+function onOpChange() {
+  applyPaths();
+  for (const b of $('ops').querySelectorAll('button')) b.setAttribute('aria-current', String(+b.dataset.k === S.curOp));
+  const cur = $('ops').querySelector('[aria-current="true"]');
+  if (cur) { const box = $('ops'), cr = cur.getBoundingClientRect(), br = box.getBoundingClientRect(); if (cr.top < br.top || cr.bottom > br.bottom) box.scrollTop += cr.top - br.top - 40; }
+}
+function buildOps() {
+  const P = S.prog;
+  $('ops').innerHTML = P.ops.map((o, k) => `<li><button type="button" data-k="${k}" aria-current="false"><span class="sw" style="background:${toolHex(o.tool)}"></span><span class="t">T${o.tool}</span><span>${esc(o.label)}</span></button></li>`).join('');
+  $('ops').querySelectorAll('button').forEach(b => { b.onclick = () => goToOp(+b.dataset.k); });
+}
+function buildTicks() {
+  const P = S.prog; let prev = -1;
+  $('ticks').innerHTML = P.ops.map((o, k) => {
+    const left = P.total > 0 ? opStart(k) / P.total * 100 : 0, chg = o.tool !== prev; prev = o.tool;
+    return `<div class="tick" style="left:${left}%;background:${chg ? toolHex(o.tool) : 'var(--muted)'};opacity:${chg ? 1 : .5}" title="${esc(o.label)}"></div>`;
+  }).join('');
+}
+function buildLegend() {
+  const P = S.prog;
+  $('legend').innerHTML = S.mode === 'progress'
+    ? '<div><span class="sw" style="background:var(--blue)"></span>Material still to remove</div><div><span class="sw" style="background:var(--green)"></span>At final size for this program</div>'
+    : '<div><span class="sw" style="background:#9eaebf"></span>Not touched</div>' + S.tools.map(t => `<div><span class="sw" style="background:${toolHex(t.no)}"></span>T${t.no} ${esc(toolLabel(t))}, Ø${+t.D.toFixed(2)}</div>`).join('');
+}
+function buildToolCards() {
+  const typeOpts = [['flat', 'Flat end mill'], ['ball', 'Ball end mill'], ['bull', 'Bull nose'], ['drill', 'Drill'], ['chamfer', 'Chamfer mill']];
+  const fields = [['D', 'Diameter'], ['rc', 'Corner radius'], ['flute', 'Flute length'], ['stick', 'Length below holder'], ['holderD', 'Holder diameter'], ['holderH', 'Holder length']];
+  $('toolCards').innerHTML = S.tools.map(t => `<div class="tool-card" data-no="${t.no}"><h4><span class="sw" style="background:${toolHex(t.no)}"></span>T${t.no} ${esc(toolLabel(t))}${t.fromLib ? ' (from tool library)' : t.fromCsv ? ' (from setup sheet)' : t.guessed ? ' (read from tool name)' : t.defaulted ? ' (no size in program, guessed)' : ''}</h4><div class="grid2">
+    <label class="f">Type<select data-k="type">${typeOpts.map(o => `<option value="${o[0]}"${o[0] === t.type ? ' selected' : ''}>${o[1]}</option>`).join('')}</select></label>
+    ${fields.map(f => `<label class="f">${f[1]}<input data-k="${f[0]}" type="number" step="0.1" min="0" value="${+(+t[f[0]]).toFixed(3)}"></label>`).join('')}
+  </div></div>`).join('');
+  $('toolCards').querySelectorAll('.tool-card').forEach(card => {
+    const t = S.tools.find(x => x.no === +card.dataset.no);
+    card.querySelectorAll('[data-k]').forEach(inp => inp.addEventListener('change', () => {
+      const k = inp.dataset.k; t[k] = k === 'type' ? inp.value : parseFloat(inp.value) || 0;
+      if (k === 'holderD' || k === 'holderH') t.holderSegs = null;
+      S.toolsDirty = true; $('applyTools').classList.add('primary');
+    }));
+  });
+}
+function updateChips(force) {
+  const st = S.stats; if (!st.nx) return;
+  const c = []; c.push(`grid ${st.nx}x${st.ny}, ${st.dx.toFixed(2)} mm`);
+  c.push(`whole program simulated in ${(st.ms / 1000).toFixed(st.ms > 9999 ? 0 : 1)} s (${st.moves.toLocaleString()} moves)`);
+  if (S.csv && S.csv.cycleSec && S.prog) c.push(`cycle estimate ${mmss(S.prog.total)}, setup sheet ${mmss(S.csv.cycleSec)}`);
+  if (S.fps) c.push(`${S.fps} fps`);
+  if (S.limited && S.playing) c.push('sim-limited: this device cannot keep up at this speed');
+  const html = c.map((s, k) => `<span class="chip${s.startsWith('sim-limited') ? ' warn' : ''}">${esc(s)}</span>`).join('');
+  if (force || html !== updateChips._h) { updateChips._h = html; $('chips').innerHTML = html; }
+}
+
+/* ================= wiring ================= */
+$('fileProg').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; handleFiles(fl); };
+$('fileLib').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; handleFiles(fl); };
+$('unitSel').onchange = () => { if (S.text) loadText(S.text, S.name, { csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName }); };
+$('demoSel').onchange = e => {
+  const v = e.target.value; e.target.value = '';
+  if (v === 'demo') loadText(NC.demoProgram(), 'Demo program', { stock: { xmin: -50, xmax: 50, ymin: -35, ymax: 35, zbot: -20, ztop: 0 } });
+  if (v === 'stress') loadText(NC.stressProgram(), 'Stress test', { stock: { xmin: -50, xmax: 50, ymin: -50, ymax: 50, zbot: -12, ztop: 0 } });
+};
+$('themeBtn').onclick = () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+  r.dataset.theme = dark ? 'light' : 'dark';
+};
+document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
+  S.mode = b.dataset.mode;
+  document.querySelectorAll('[data-mode]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  if (S.sim && S.prog) { buildLegend(); refreshStock(true); }
+});
+document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
+$('bPlay').onclick = togglePlay;
+$('bRestart').onclick = () => { if (S.ready) { S.pendingSeek = 0; S.playing = false; updatePlay(); } };
+$('bNext').onclick = () => { if (S.ready) goToOp(Math.min(S.curOp + 1, S.prog.ops.length - 1)); };
+$('bPrev').onclick = () => { if (S.ready) goToOp(S.tau - opStart(S.curOp) > 1.5 ? S.curOp : Math.max(0, S.curOp - 1)); };
+$('speedSel').onchange = e => { S.speed = +e.target.value; };
+$('resSel').onchange = e => { S.res = +e.target.value; if (S.prog) rebuild(false); };
+$('applyStock').onclick = () => { if (S.prog) rebuild(false); };
+$('applyTools').onclick = () => { if (!S.prog) return; S.tools.forEach(NC.completeTool); $('applyTools').classList.remove('primary'); buildToolCards(); rebuild(false); };
+$('pathSel').onchange = e => { S.path = e.target.value; applyPaths(); };
+$('rapidSel').onchange = e => { S.rapids = e.target.value === 'on'; applyPaths(); };
+$('holderSel').onchange = e => { S.holder = e.target.value === 'on'; toolGroups.forEach(g => { g.userData.holder.visible = S.holder; }); invalidate(); };
+$('fixSel').onchange = e => { S.fixtures = e.target.value === 'on'; fixScene.visible = S.fixtures; invalidate(); };
+$('ghostSel').onchange = e => { S.ghost = e.target.value === 'on'; if (STOCK.ghost) STOCK.ghost.visible = S.ghost; invalidate(); };
+const scrub = $('scrub');
+scrub.addEventListener('pointerdown', () => { S.scrubbing = true; });
+scrub.addEventListener('input', () => { if (!S.ready) return; S.playing = false; updatePlay(); S.pendingSeek = scrub.value / 10000 * S.prog.total; });
+const endScrub = () => { S.scrubbing = false; };
+scrub.addEventListener('pointerup', endScrub); scrub.addEventListener('change', endScrub); scrub.addEventListener('blur', endScrub);
+document.addEventListener('keydown', e => {
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) && e.target !== scrub) return;
+  if (e.code === 'Space' && e.target.tagName === 'BUTTON') return;
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  else if (e.code === 'ArrowRight' && e.target !== scrub) $('bNext').click();
+  else if (e.code === 'ArrowLeft' && e.target !== scrub) $('bPrev').click();
+  else if (e.code === 'Home') $('bRestart').click();
+  else if (e.code === 'Escape') hideProbe();
+});
+let dragDepth = 0;
+window.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; vp.classList.add('drop'); });
+window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; vp.classList.remove('drop'); } });
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; vp.classList.remove('drop'); if (e.dataTransfer && e.dataTransfer.files.length) handleFiles([...e.dataTransfer.files]); });
+
+/* ================= frame loop ================= */
+let lastT = performance.now(), fpsN = 0, fpsT = lastT, errShown = false;
+function frame(now) {
+  requestAnimationFrame(frame);
+  try {
+    const dt = Math.min(0.1, (now - lastT) / 1000); lastT = now;
+    if (S.ready && S.prog) {
+      if (S.pendingSeek !== null) { const tg = S.pendingSeek; S.pendingSeek = null; goTo(tg); }
+      else if (S.playing) {
+        advance(Math.min(S.prog.total, S.tau + dt * S.speed), 9);
+        if (S.tau >= S.prog.total - 1e-9 && S.cur.i >= S.prog.n) { S.playing = false; updatePlay(); }
+      }
+      refreshStock(false); updateTool(); updateHud(false);
+    }
+    if (S.needsRender) { S.needsRender = false; renderer.render(scene, camera); fpsN++; }
+    if (now - fpsT > 1000) { S.fps = S.playing ? Math.round(fpsN * 1000 / (now - fpsT)) : 0; fpsN = 0; fpsT = now; updateChips(false); }
+    if (S.playing) invalidate();
+  } catch (err) { console.error(err); if (!errShown) { errShown = true; toast('Something went wrong in the viewer: ' + err.message); } }
+}
+resize(); setView('fit');
+requestAnimationFrame(frame);
+window.__floorsim = { S, orb, goTo, advance, loadText, handleFiles, fixScene, rebuild, STOCK, toolGroups, renderer, pickAt, camera };   // handy for debugging in the console
+loadText(NC.demoProgram(), 'Demo program', { stock: { xmin: -50, xmax: 50, ymin: -35, ymax: 35, zbot: -20, ztop: 0 } });
+})();
+
+</script>
+</body>
+</html>

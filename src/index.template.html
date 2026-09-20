@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NC Floor Sim (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<style>
+/*CSS*/
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="title"><strong>Floor Sim</strong><span class="tag">prototype</span><span class="fname" id="fname"></span></div>
+    <div class="bar-actions">
+      <label class="btn primary" for="fileProg" title="Pick the job file (.floorsim.json) made by the Fusion add-in">Open job file</label>
+      <input id="fileProg" type="file" multiple hidden>
+      <label class="btn" for="fileLib">Tool library</label>
+      <input id="fileLib" type="file" multiple hidden>
+      <select id="demoSel" class="sel" aria-label="Load a sample program">
+        <option value="">Samples</option>
+        <option value="demo">Demo: pocket, drill, chamfer, groove</option>
+        <option value="stress">Stress test: 38k-move 3D surface</option>
+      </select>
+      <button id="themeBtn" class="btn icon" aria-label="Switch light or dark theme" title="Light / dark">
+        <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18V3z"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="main">
+    <section class="viewport" id="vp" aria-label="3D simulation view">
+      <div class="vp-top">
+        <div class="seg" role="group" aria-label="Colour mode">
+          <button type="button" data-mode="progress" aria-pressed="true">Progress</button>
+          <button type="button" data-mode="tool" aria-pressed="false">By tool</button>
+        </div>
+        <div class="seg" role="group" aria-label="Camera">
+          <button type="button" data-view="iso">Iso</button>
+          <button type="button" data-view="top">Top</button>
+          <button type="button" data-view="front">Front</button>
+          <button type="button" data-view="fit">Fit</button>
+        </div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="chips" id="chips"></div>
+      <div class="probe" id="probe" hidden></div>
+      <div class="busy" id="busy" hidden>
+        <div id="busyTxt">Preparing simulation</div>
+        <div class="bar-track"><div class="bar-fill" id="busyBar"></div></div>
+      </div>
+      <div class="fatal" id="fatal" hidden>
+        <div><b>The 3D viewer could not start.</b><br><span id="fatalTxt">This page needs WebGL and the three.js library.</span></div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="now" aria-live="off">
+        <div class="now-head">
+          <div class="tnum" id="tNo">T1</div>
+          <div>
+            <div class="tname" id="tName">No program loaded</div>
+            <div class="tdims" id="tDims"></div>
+          </div>
+          <svg class="tsvg" id="tSvg" viewBox="0 0 58 106" aria-hidden="true"></svg>
+        </div>
+        <div class="reads">
+          <div class="read"><span>Spindle rpm</span><b id="rSpin">0</b></div>
+          <div class="read"><span id="rFeedL">Feed mm/min</span><b id="rFeed">0</b></div>
+          <div class="read"><span>Coolant</span><b id="rCool">Off</b></div>
+        </div>
+        <div class="opnow" id="opNow"></div>
+        <div class="opsub" id="opSub"></div>
+        <div class="xyz"><div><span>X</span><b id="pX">0.000</b></div><div><span>Y</span><b id="pY">0.000</b></div><div><span>Z</span><b id="pZ">0.000</b></div></div>
+      </section>
+
+      <section class="code">
+        <h2>G-code</h2>
+        <div class="codebox" id="code"></div>
+      </section>
+
+      <section class="opsec">
+        <h2>Operations</h2>
+        <ol id="ops"></ol>
+      </section>
+      <div class="warns" id="warns"></div>
+
+      <details>
+        <summary>Stock and resolution</summary>
+        <div class="pad">
+          <div class="grid2">
+            <label class="f">X min<input id="sxmin" type="number" step="0.1"></label>
+            <label class="f">X max<input id="sxmax" type="number" step="0.1"></label>
+            <label class="f">Y min<input id="symin" type="number" step="0.1"></label>
+            <label class="f">Y max<input id="symax" type="number" step="0.1"></label>
+            <label class="f">Z bottom<input id="szbot" type="number" step="0.1"></label>
+            <label class="f">Z top<input id="sztop" type="number" step="0.1"></label>
+          </div>
+          <div class="grid2" style="margin-top:10px">
+            <label class="f">Program units
+              <select id="unitSel"><option value="auto">Auto</option><option value="inch">Inches</option><option value="mm">Millimetres</option></select>
+            </label>
+            <label class="f">Grid resolution
+              <select id="resSel">
+                <option value="200">Draft, 200 cells</option>
+                <option value="280">Fast, 280 cells</option>
+                <option value="360" selected>Balanced, 360 cells</option>
+                <option value="520">Fine, 520 cells</option>
+                <option value="800">Ultra, 800 cells</option>
+              </select>
+            </label>
+            <div style="display:flex;align-items:end"><button class="btn primary" id="applyStock" type="button">Apply stock</button></div>
+          </div>
+          <p class="note">Stock box in program coordinates, shown in mm. Size comes from the setup-sheet CSV when there is one; its position is a guess from the toolpath until the Fusion setup supplies it.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Tools and holders</summary>
+        <div class="pad">
+          <div id="toolCards"></div>
+          <button class="btn primary" id="applyTools" type="button">Apply tool changes</button>
+          <p class="note">Sizes come from the Fusion tool library (.tools) if you load one, then the setup-sheet CSV, then the tool name in the program.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Display</summary>
+        <div class="pad">
+          <div class="grid2">
+            <label class="f">Toolpath lines
+              <select id="pathSel"><option value="op">Current operation</option><option value="all">Whole program</option><option value="off">Hidden</option></select>
+            </label>
+            <label class="f">Rapid moves
+              <select id="rapidSel"><option value="off">Hidden</option><option value="on">Shown</option></select>
+            </label>
+            <label class="f">Holder
+              <select id="holderSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
+            </label>
+            <label class="f">Workholding
+              <select id="fixSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
+            </label>
+            <label class="f">Original stock outline
+              <select id="ghostSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
+            </label>
+          </div>
+        </div>
+      </details>
+    </aside>
+  </main>
+
+  <footer class="transport">
+    <div class="tbtns">
+      <button class="btn" id="bRestart" type="button" aria-label="Back to start" title="Back to start (Home)"><svg viewBox="0 0 24 24"><path d="M6 5h2.5v14H6zM20 5v14L9.5 12z"/></svg></button>
+      <button class="btn" id="bPrev" type="button" aria-label="Previous operation" title="Previous operation (Left arrow)"><svg viewBox="0 0 24 24"><path d="M11 6v12L2.5 12zM21.5 6v12L13 12z"/></svg></button>
+      <button class="btn primary play" id="bPlay" type="button" aria-label="Play" title="Play / pause (Space)"><svg viewBox="0 0 24 24" id="playIcon"><path d="M7 4.5v15L19.5 12z"/></svg></button>
+      <button class="btn" id="bNext" type="button" aria-label="Next operation" title="Next operation (Right arrow)"><svg viewBox="0 0 24 24"><path d="M2.5 6v12L11 12zM13 6v12l8.5-6z"/></svg></button>
+    </div>
+    <div class="scrubwrap">
+      <div class="ticks" id="ticks"></div>
+      <input id="scrub" type="range" min="0" max="10000" value="0" aria-label="Program timeline">
+    </div>
+    <div class="speed">
+      <label for="speedSel">Speed</label>
+      <select id="speedSel" class="sel">
+        <option value="1">1x</option><option value="3">3x</option><option value="10">10x</option>
+        <option value="30" selected>30x</option><option value="100">100x</option><option value="300">300x</option><option value="1000">1000x</option>
+      </select>
+    </div>
+    <div class="time" id="timeTxt">0:00 / 0:00</div>
+  </footer>
+</div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/*ENGINE*/
+</script>
+<script>
+/*APP*/
+</script>
+</body>
+</html>
