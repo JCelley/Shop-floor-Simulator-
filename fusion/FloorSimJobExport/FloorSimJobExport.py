@@ -1,5 +1,5 @@
 """
-FloorSimJobExport: a Fusion add-in that adds a "Post for shop floor" button to the Manufacture workspace.
+FloorSimJobExport: a Fusion add-in that adds a "Shop Floor Sim Files" button to the Manufacture workspace.
 
 Click it, pick an NC program from the list, press OK. It posts that NC program with its own saved post settings,
 then writes ONE file next to the posted NC file, named after it (for example O1228.floorsim.json). The file holds
@@ -446,6 +446,36 @@ class _Execute(adsk.core.CommandEventHandler if adsk else object):
             ui.messageBox('\n'.join(log + ['', 'Failed:', traceback.format_exc()]), 'Shop floor export')
 
 
+# v0.2 - John wanted the button inside Fusion's own "Actions" panel on the Milling tab, not its
+# own panel. There are actually TWO panels named "Actions" (Milling tab and Utilities tab) - a
+# name search across the whole workspace found the wrong one first. Neither panel's real internal
+# ID is known (unverified), so both the tab and the panel are found by matching their displayed
+# names. If that search ever fails (e.g. Autodesk renames or relocates either one), this falls
+# back to our own panel on the Tools tab exactly as before, so the button never just silently
+# disappears. //DWY
+NATIVE_TAB_NAME = 'MILLING'
+NATIVE_PANEL_NAME = 'ACTIONS'
+
+
+def find_panel_in_tab(ws, tab_name, panel_name):
+    """Search one specific tab's panels by displayed name, not a workspace-wide search - panel
+    names are not unique across tabs (there are two different panels both named "Actions")."""
+    try:
+        tab_target = tab_name.strip().lower()
+        panel_target = panel_name.strip().lower()
+        for i in range(ws.toolbarTabs.count):
+            tab = ws.toolbarTabs.item(i)
+            if not tab.name or tab.name.strip().lower() != tab_target:
+                continue
+            for j in range(tab.toolbarPanels.count):
+                p = tab.toolbarPanels.item(j)
+                if p.name and p.name.strip().lower() == panel_target:
+                    return p
+    except Exception:
+        pass
+    return None
+
+
 def run(context):
     app = adsk.core.Application.get()
     ui = app.userInterface
@@ -454,13 +484,13 @@ def run(context):
         if cmd_def:
             cmd_def.deleteMe()
         cmd_def = ui.commandDefinitions.addButtonDefinition(
-            CMD_ID, 'Post for shop floor',
+            CMD_ID, 'Shop Floor Sim Files',
             'Posts the chosen NC program and writes one job file for the floor simulator')
         h = _Created()
         cmd_def.commandCreated.add(h)
         _handlers.append(h)
         ws = ui.workspaces.itemById('CAMEnvironment')
-        panel = ws.toolbarPanels.itemById(PANEL_ID) or ws.toolbarPanels.add(PANEL_ID, 'Shop floor')
+        panel = find_panel_in_tab(ws, NATIVE_TAB_NAME, NATIVE_PANEL_NAME) or ws.toolbarPanels.itemById(PANEL_ID) or ws.toolbarPanels.add(PANEL_ID, 'Shop floor')
         ctrl = panel.controls.itemById(CMD_ID) or panel.controls.addCommand(cmd_def)
         ctrl.isPromoted = True
     except Exception:
@@ -472,12 +502,15 @@ def stop(context):
     ui = app.userInterface
     try:
         ws = ui.workspaces.itemById('CAMEnvironment')
-        panel = ws.toolbarPanels.itemById(PANEL_ID)
+        # Our control could be sitting in Fusion's native Actions panel or, if that search failed
+        # this session, our own fallback panel - check both, but only ever delete the PANEL if it
+        # is the one we created ourselves (id == PANEL_ID). Never delete a native Fusion panel.
+        panel = find_panel_in_tab(ws, NATIVE_TAB_NAME, NATIVE_PANEL_NAME) or ws.toolbarPanels.itemById(PANEL_ID)
         if panel:
             ctrl = panel.controls.itemById(CMD_ID)
             if ctrl:
                 ctrl.deleteMe()
-            if panel.controls.count == 0:
+            if panel.id == PANEL_ID and panel.controls.count == 0:
                 panel.deleteMe()
         cmd_def = ui.commandDefinitions.itemById(CMD_ID)
         if cmd_def:
