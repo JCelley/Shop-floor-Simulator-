@@ -139,10 +139,16 @@ box via `onParameter("stock-lower-x" ... "stock-upper-z")`, per-section tool pro
 `holderLength`, `taperAngle`, `tipAngle`, `cornerRadius`, `comment`), `operation-comment`, `job-description`, cycle time, and a script-set property
 `fixtureInfo` (text). CSV stock is printed as inches by string, so values are in the post's unit (`unit == MM` decides).
 
-What is **unknown** and worth a throwaway test before designing further:
-1. Can `TextFile` open the posted NC for reading (`new TextFile(path, false, ...)`), and is the NC complete when the cascade runs? Needed to embed the program.
-2. Which tool and holder properties does the post engine expose beyond the ones above (holder segments?). Autodesk's `dump.cps` prints every parameter.
-3. Fixture geometry almost certainly is not exposed (workholding is CAD bodies).
+**Resolved 2026-09-19** by `fusion/posts/FloorSim_Unknowns_Test.cps` (throwaway diagnostic), run for real against O1228:
+1. `TextFile` **cannot read the posted NC back.** `new TextFile(path, false, "utf-8")` and `new TextFile(path, false)` both failed (the second with "Mismatching arguments for constructor 'TextFile'"). This post engine's `TextFile` is write-only. **The G-code cannot be embedded in a post-written JSON.**
+2. `tool.holder` and `tool.shaft` exist but dump as empty objects (no enumerable properties); `tool.toJson`/`tool.toJSON` are both `undefined`. **No holder segment geometry is reachable from the post** — confirms the add-in/export-script route is the only way to get the real holder shape. However the tool object DOES expose flat numbers not previously used in the CSV: `holderDiameter`, `holderTipDiameter`, `holderLength` — enough for an approximate single-cone holder, just not the true multi-segment profile.
+3. Fixture geometry: still not tested, but expected to be absent for the same reason as #2 (CAD bodies, not scalar parameters).
+
+Given #1, `fusion/posts/CSV_Cascade_Post_v2_6_7.cps` writes a **`floorsim-setup`**-shaped `<base>.floorsim.json` (stock box in mm, converted from the post's own `unit`, plus setup name) instead of a full `floorsim-job`. No page-side change was needed: the existing `format === 'floorsim-setup'` path already consumes `stock` this way. It does not yet include a tool list — that would need a page-side change to read tool dimensions from a `floorsim-setup` file (currently only `floorsim-job` carries `toolLibrary`).
+
+**Verified 2026-09-19**: John posted O1228/OP50 for real with `v2_6_7` as the cascading post. Output:
+`{"format":"floorsim-setup","version":1,"units":"mm","program":"O1228","setup":"OP50 ","stock":{"xmin":-26.9875,"xmax":4.7625,"ymin":-15.875,"ymax":15.875,"zmin":90.092,"zmax":118.794},"exported":"2026-09-19T22:07:32"}`
+Stock box matches the value already verified against the toolpath via the Python export route (section 5: `X -26.988..4.762, Y +-15.875, Z 90.092..118.794 mm`) to well under 0.001 mm — confirms the post's `stock-lower/upper-*` parameters and the `unit == MM` mm conversion are both correct. Kept as `fixtures/setups/OP50_from_cascading_post.floorsim.json` and covered by `tests/postJson.test.js` (loads the real O1228.NC + this file together, exactly as an operator would).
 
 ## 7. Performance (desktop Node, not a Chromebook)
 

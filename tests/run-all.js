@@ -9,6 +9,7 @@ const steps = [
   ['engine (parser + stock removal)', 'node', ['tests/engine.test.js']],
   ...(py ? [['fusion export script (math)', py, ['tests/script.test.py']], ['fusion add-in (fake Fusion, real job data)', py, ['tests/addin.test.py']]] : []),
   ['page UI (jsdom, stubbed WebGL)', 'node', ['tests/ui.test.js']],
+  ['real cascading-post JSON + real NC (jsdom)', 'node', ['tests/postJson.test.js']],
   ...(hasBrowser ? [['page in a real browser (Playwright/Chromium)', 'node', ['tests/browser.test.js']]] : []),
   ['real OP50 files + placement checks', 'node', ['tests/real2.test.js']],
   ...(py ? [['job file -> page', 'node', ['tests/job.test.js']]] : []),

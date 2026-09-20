@@ -40,7 +40,7 @@ Read `docs/NOTES.md` for evidence, file formats, and the decision log. This file
 | Real job O1228 (19,126 moves, 16 ops, 7 tools) | Loads, simulates in ~0.9 s here, placement checks pass |
 | `fusion/FloorSimExport.py` (per-setup stock + workholding export) | v1 ran in real Fusion (produced 4 files; exposed an origin-unit bug). v2 fix is tested on fake data and by re-placing v1 output, **not re-run in Fusion** |
 | `fusion/FloorSimJobExport/` add-in (button + one job file) | Tested only against a fake Fusion. **Never run in Fusion. Parked**: John prefers the post-based route |
-| Cascading post writes the job JSON | **Not started.** Preferred direction. See Roadmap |
+| Cascading post writes the job JSON | `CSV_Cascade_Post_v2_6_7.cps` writes `<base>.floorsim.json` (stock box + setup name only, no G-code or tool list — see NOTES). **Run for real against O1228**: stock box matched the value already verified via the Python export route to the mm. The proven `CSV_Cascade_Post_v2_6_6.cps` is untouched |
 | Chromebook performance | **Unmeasured.** All timings are desktop Node |
 | Real-browser rendering tests | **None automated.** Tests use jsdom with a stubbed renderer |
 
