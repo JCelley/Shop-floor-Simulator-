@@ -123,10 +123,15 @@ button, select, input { font: inherit; color: inherit; }
 .xyz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; font: 600 17px var(--mono); }
 .xyz span { color: var(--muted); font-weight: 500; margin-right: 4px; }
 .code { padding: 10px 14px 12px; }
+.code-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.code-head h2 { margin: 0 0 8px; }
 .codebox { font: 500 13.5px/1.55 var(--mono); background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; height: 12.4em; overflow: hidden; }
 .ln { display: grid; grid-template-columns: 4.2ch 1fr; gap: 8px; padding: 0 8px; white-space: pre; overflow: hidden; }
 .ln i { font-style: normal; color: var(--muted); text-align: right; }
 .ln.cur { background: var(--code-cur); font-weight: 700; }
+.code-edit textarea { width: 100%; height: 16em; resize: vertical; font: 500 13.5px/1.55 var(--mono); background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 8px; color: inherit; box-sizing: border-box; }
+.code-edit-row { display: flex; gap: 8px; margin-top: 8px; }
+.code-edit-note { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
 .opsec { padding: 10px 0 6px; }
 .opsec h2 { padding: 0 14px; }
 #ops { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }

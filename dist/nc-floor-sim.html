@@ -133,10 +133,15 @@ button, select, input { font: inherit; color: inherit; }
 .xyz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; font: 600 17px var(--mono); }
 .xyz span { color: var(--muted); font-weight: 500; margin-right: 4px; }
 .code { padding: 10px 14px 12px; }
+.code-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.code-head h2 { margin: 0 0 8px; }
 .codebox { font: 500 13.5px/1.55 var(--mono); background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; height: 12.4em; overflow: hidden; }
 .ln { display: grid; grid-template-columns: 4.2ch 1fr; gap: 8px; padding: 0 8px; white-space: pre; overflow: hidden; }
 .ln i { font-style: normal; color: var(--muted); text-align: right; }
 .ln.cur { background: var(--code-cur); font-weight: 700; }
+.code-edit textarea { width: 100%; height: 16em; resize: vertical; font: 500 13.5px/1.55 var(--mono); background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 8px; color: inherit; box-sizing: border-box; }
+.code-edit-row { display: flex; gap: 8px; margin-top: 8px; }
+.code-edit-note { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
 .opsec { padding: 10px 0 6px; }
 .opsec h2 { padding: 0 14px; }
 #ops { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
@@ -253,8 +258,16 @@ label.f select { font-family: var(--font); }
       </section>
 
       <section class="code">
-        <h2>G-code</h2>
+        <div class="code-head"><h2>G-code</h2><button class="btn" id="codeEditBtn" type="button" title="Edit and re-run the program - not saved, gone on reload">Edit</button></div>
         <div class="codebox" id="code"></div>
+        <div class="code-edit" id="codeEditWrap" hidden>
+          <textarea id="codeEdit" spellcheck="false" aria-label="Edit G-code"></textarea>
+          <div class="code-edit-row">
+            <button class="btn primary" id="codeRun" type="button">Run edited code</button>
+            <button class="btn" id="codeCancel" type="button">Cancel</button>
+          </div>
+          <p class="code-edit-note">Not saved - back to the original next time you open this program.</p>
+        </div>
       </section>
 
       <section class="opsec">
@@ -1640,6 +1653,7 @@ async function loadText(text, name, opts = {}) {
 }
 // Accepts any mix of: G-code program, setup-sheet CSV, Fusion .tools / tool-library JSON, job bundle JSON.
 async function handleFiles(files) {
+  exitCodeEdit();   // loading anything new always drops out of an in-progress G-code edit
   const b = { text: null, name: '', csv: null, lib: null, bundle: null, setup: null, job: null };
   for (const f of files) {
     try {
@@ -1876,6 +1890,24 @@ function renderCode(ln) {
   for (let k = a; k <= b; k++) h += `<div class="ln${k === ln ? ' cur' : ''}"><i>${k}</i><span>${esc(L[k - 1])}</span></div>`;
   $('code').innerHTML = h;
 }
+
+/* ---------- G-code editing: never saved, just re-run through the normal load path ---------- */
+function enterCodeEdit() {
+  if (!S.prog) return;
+  S.playing = false; updatePlay();
+  $('codeEdit').value = S.text || '';
+  $('code').hidden = true; $('codeEditWrap').hidden = false; $('codeEditBtn').hidden = true;
+  $('codeEdit').focus();
+}
+function exitCodeEdit() {
+  $('code').hidden = false; $('codeEditWrap').hidden = true; $('codeEditBtn').hidden = false;
+}
+async function runCodeEdit() {
+  const newText = $('codeEdit').value;
+  const baseName = S.name.replace(/ \(edited\)$/, '');
+  await loadText(newText, baseName + ' (edited)', { csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName });
+  if (S.text === newText) exitCodeEdit();   // stay in edit mode on failure so the typo is still there to fix
+}
 function onOpChange() {
   applyPaths();
   for (const b of $('ops').querySelectorAll('button')) b.setAttribute('aria-current', String(+b.dataset.k === S.curOp));
@@ -1933,9 +1965,13 @@ $('fileFolder').onchange = e => { const fl = [...e.target.files]; e.target.value
 $('pickerCancel').onclick = hidePicker;
 $('pickerBack').addEventListener('click', e => { if (e.target === $('pickerBack')) hidePicker(); });
 document.addEventListener('keydown', e => { if (e.code === 'Escape' && !$('pickerBack').hidden) hidePicker(); });
+$('codeEditBtn').onclick = enterCodeEdit;
+$('codeCancel').onclick = exitCodeEdit;
+$('codeRun').onclick = runCodeEdit;
 $('fileLib').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; handleFiles(fl); };
-$('unitSel').onchange = () => { if (S.text) loadText(S.text, S.name, { csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName }); };
+$('unitSel').onchange = () => { exitCodeEdit(); if (S.text) loadText(S.text, S.name, { csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName }); };
 $('demoSel').onchange = e => {
+  exitCodeEdit();
   const v = e.target.value; e.target.value = '';
   if (v === 'demo') loadText(NC.demoProgram(), 'Demo program', { stock: { xmin: -50, xmax: 50, ymin: -35, ymax: 35, zbot: -20, ztop: 0 } });
   if (v === 'stress') loadText(NC.stressProgram(), 'Stress test', { stock: { xmin: -50, xmax: 50, ymin: -50, ymax: 50, zbot: -12, ztop: 0 } });
@@ -2005,7 +2041,7 @@ function frame(now) {
 }
 resize(); setView('fit');
 requestAnimationFrame(frame);
-window.__floorsim = { S, orb, goTo, advance, loadText, handleFiles, openFolder, groupFolderFiles, fixScene, rebuild, STOCK, toolGroups, renderer, pickAt, camera, scene };   // handy for debugging in the console
+window.__floorsim = { S, orb, goTo, advance, loadText, handleFiles, openFolder, groupFolderFiles, enterCodeEdit, exitCodeEdit, runCodeEdit, fixScene, rebuild, STOCK, toolGroups, renderer, pickAt, camera, scene };   // handy for debugging in the console
 loadText(NC.demoProgram(), 'Demo program', { stock: { xmin: -50, xmax: 50, ymin: -35, ymax: 35, zbot: -20, ztop: 0 } });
 })();
 

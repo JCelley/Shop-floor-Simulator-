@@ -80,8 +80,16 @@
       </section>
 
       <section class="code">
-        <h2>G-code</h2>
+        <div class="code-head"><h2>G-code</h2><button class="btn" id="codeEditBtn" type="button" title="Edit and re-run the program - not saved, gone on reload">Edit</button></div>
         <div class="codebox" id="code"></div>
+        <div class="code-edit" id="codeEditWrap" hidden>
+          <textarea id="codeEdit" spellcheck="false" aria-label="Edit G-code"></textarea>
+          <div class="code-edit-row">
+            <button class="btn primary" id="codeRun" type="button">Run edited code</button>
+            <button class="btn" id="codeCancel" type="button">Cancel</button>
+          </div>
+          <p class="code-edit-note">Not saved - back to the original next time you open this program.</p>
+        </div>
       </section>
 
       <section class="opsec">

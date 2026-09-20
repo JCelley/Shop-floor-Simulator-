@@ -127,6 +127,14 @@ a tool change forces a new operation.
   "Open job file" button, which still exists for edge cases. Tested in `tests/folderPicker.test.js` (real fixture filenames for the
   grouping logic, synthetic small programs for the load-through-the-picker checks - loading the real O1224/O1228 fixtures isn't needed
   since grouping only reads `.name`/`.lastModified`, never file content).
+- **G-code editing** (`enterCodeEdit`/`exitCodeEdit`/`runCodeEdit` in app.js): the "Edit" button next to the G-code panel swaps the compact
+  scrolling view for a full `<textarea>` of `S.text`; "Run edited code" re-runs it through the exact same `loadText()` every other input
+  goes through (same csv/lib/setup context carried along), named `"<program> (edited)"`. Nothing is ever written to disk or `localStorage`
+  - there is nothing to "not save," the edited text only exists in the textarea and `S.text` until the next load. A run that fails (e.g. no
+  tool motion at all) leaves edit mode open with the bad text still there to fix, detected by comparing `S.text` to what was submitted
+  (unchanged means `loadText` bailed out early without mutating state). Loading anything else - a different file, a sample, a folder pick -
+  always exits edit mode first (`exitCodeEdit()` at the top of `handleFiles()` and in the demo/unit-change handlers). Tested in
+  `tests/codeEdit.test.js`.
 
 ## 4. File formats
 

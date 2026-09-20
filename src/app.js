@@ -509,6 +509,7 @@ async function loadText(text, name, opts = {}) {
 }
 // Accepts any mix of: G-code program, setup-sheet CSV, Fusion .tools / tool-library JSON, job bundle JSON.
 async function handleFiles(files) {
+  exitCodeEdit();   // loading anything new always drops out of an in-progress G-code edit
   const b = { text: null, name: '', csv: null, lib: null, bundle: null, setup: null, job: null };
   for (const f of files) {
     try {
@@ -745,6 +746,24 @@ function renderCode(ln) {
   for (let k = a; k <= b; k++) h += `<div class="ln${k === ln ? ' cur' : ''}"><i>${k}</i><span>${esc(L[k - 1])}</span></div>`;
   $('code').innerHTML = h;
 }
+
+/* ---------- G-code editing: never saved, just re-run through the normal load path ---------- */
+function enterCodeEdit() {
+  if (!S.prog) return;
+  S.playing = false; updatePlay();
+  $('codeEdit').value = S.text || '';
+  $('code').hidden = true; $('codeEditWrap').hidden = false; $('codeEditBtn').hidden = true;
+  $('codeEdit').focus();
+}
+function exitCodeEdit() {
+  $('code').hidden = false; $('codeEditWrap').hidden = true; $('codeEditBtn').hidden = false;
+}
+async function runCodeEdit() {
+  const newText = $('codeEdit').value;
+  const baseName = S.name.replace(/ \(edited\)$/, '');
+  await loadText(newText, baseName + ' (edited)', { csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName });
+  if (S.text === newText) exitCodeEdit();   // stay in edit mode on failure so the typo is still there to fix
+}
 function onOpChange() {
   applyPaths();
   for (const b of $('ops').querySelectorAll('button')) b.setAttribute('aria-current', String(+b.dataset.k === S.curOp));
@@ -802,9 +821,13 @@ $('fileFolder').onchange = e => { const fl = [...e.target.files]; e.target.value
 $('pickerCancel').onclick = hidePicker;
 $('pickerBack').addEventListener('click', e => { if (e.target === $('pickerBack')) hidePicker(); });
 document.addEventListener('keydown', e => { if (e.code === 'Escape' && !$('pickerBack').hidden) hidePicker(); });
+$('codeEditBtn').onclick = enterCodeEdit;
+$('codeCancel').onclick = exitCodeEdit;
+$('codeRun').onclick = runCodeEdit;
 $('fileLib').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; handleFiles(fl); };
-$('unitSel').onchange = () => { if (S.text) loadText(S.text, S.name, { csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName }); };
+$('unitSel').onchange = () => { exitCodeEdit(); if (S.text) loadText(S.text, S.name, { csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName }); };
 $('demoSel').onchange = e => {
+  exitCodeEdit();
   const v = e.target.value; e.target.value = '';
   if (v === 'demo') loadText(NC.demoProgram(), 'Demo program', { stock: { xmin: -50, xmax: 50, ymin: -35, ymax: 35, zbot: -20, ztop: 0 } });
   if (v === 'stress') loadText(NC.stressProgram(), 'Stress test', { stock: { xmin: -50, xmax: 50, ymin: -50, ymax: 50, zbot: -12, ztop: 0 } });
@@ -874,6 +897,6 @@ function frame(now) {
 }
 resize(); setView('fit');
 requestAnimationFrame(frame);
-window.__floorsim = { S, orb, goTo, advance, loadText, handleFiles, openFolder, groupFolderFiles, fixScene, rebuild, STOCK, toolGroups, renderer, pickAt, camera, scene };   // handy for debugging in the console
+window.__floorsim = { S, orb, goTo, advance, loadText, handleFiles, openFolder, groupFolderFiles, enterCodeEdit, exitCodeEdit, runCodeEdit, fixScene, rebuild, STOCK, toolGroups, renderer, pickAt, camera, scene };   // handy for debugging in the console
 loadText(NC.demoProgram(), 'Demo program', { stock: { xmin: -50, xmax: 50, ymin: -35, ymax: 35, zbot: -20, ztop: 0 } });
 })();
