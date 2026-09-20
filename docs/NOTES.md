@@ -68,14 +68,30 @@ first, and rapids don't cut anyway. Verified: every plane with a non-undercut to
 removed, and simulating one plane's moves in isolation gives bit-identical results to running the whole program through
 the router (no cross-plane leakage). Test: `tests/planes.test.js`.
 
-**Not done: Phase 3 (rendering).** `app.js` still builds a single `HeightSim` and calls the original single-sim `cutMove`
-directly - it does not use `buildPlaneSims`/`cutMoveMulti` yet, so **loading a 3+2 program in the actual page still visually
-cuts tilted-plane operations in the wrong place** (though without the Phase-1 phantom-move glitch). Phase 3 needs: transform
-each plane's mesh into world space with its `origin`/`matrix` before drawing, one stock mesh per plane instead of one for
-the whole job, per-plane progress/final-surface colouring, and a probe that ray-marches the right plane's mesh. Also still
-unconfirmed: the `G68.2` rotation convention against this machine's actual A/C kinematics - do that visually once Phase 3
-renders something to look at. Fixture: `fixtures/O1224.NC`. Tests: `tests/tilt.test.js` (Phase 1), `tests/planes.test.js`
-(Phase 2).
+**Phase 3 (rendering) is done for the core case, verified visually against O1224.** `app.js` now calls
+`buildPlaneSims`/`cutMoveMulti` throughout (prepass, live playback, scrubbing snapshots all route per-move to the right
+plane). One extra stock mesh-holder is built per tilted plane (`TILT_ROOT` group in app.js); its geometry is built in the
+plane's own local coordinates - identical code to the base plane - and placed in world space purely by setting the
+mesh-holder's `THREE.Group.position`/`.quaternion` from that plane's `origin`/`matrix` (converted to a quaternion via
+`planeQuaternion()`). Camera "fit" now unions all planes' world-space boxes (`worldPlaneBounds()`), degenerating to the
+old single-box behaviour when there is only the base plane.
+
+Verified 2026-09-20 by loading the real O1224 job in an actual Chromium tab (not jsdom) and hiding the base block: all 7
+tilted meshes render at real, differently-rotated positions with correct per-plane blue/green material state, matching
+the physical picture of one stock block machined from several sides around a shared pivot point. This is the first real
+visual confirmation of the `G68.2` rotation convention (Rz(K)·Ry(J)·Rx(I), Fanuc's Q123 default) - it produces plausible,
+distinct orientations, though it has still not been checked against this machine's actual A/C kinematics number-for-number.
+
+**Known gap, not a bug in this work**: with no real stock box supplied (no setup/CSV/cascading-post file - just the bare
+`.NC`, as in the test above), `autoStock()`'s guess for the *base* plane came out far larger than the real part for this
+job, and its opaque top surface hides the smaller tilted-plane meshes sitting inside/below it. Real usage supplies a real
+stock box (setup file, CSV, or the post), which should avoid this; left alone for now (John's call, 2026-09-20). Possible
+future fixes: a 3+2-aware stock guess, or semi-transparent stock meshes.
+
+**Not done**: the probe (click-to-see-what-cut-this) only ray-marches the base plane's mesh - clicking a tilted mesh
+finds nothing. Fixture: `fixtures/O1224.NC`. Tests: `tests/tilt.test.js` (Phase 1), `tests/planes.test.js` (Phase 2). Phase
+3 has no dedicated automated test yet (it's a rendering change, verified by the screenshot check above, not by `npm test`)
+- worth a Playwright test similar to `tests/browser.test.js` if this needs to stay verified as the code evolves.
 
 Unit rule: `opts.units` if given, else the first G20/G21, else a heuristic (`guessInch`: max |XY| under 40 and median feed under 250 means
 inches). A note is shown when the heuristic is used.

@@ -93,5 +93,18 @@ for (const target of [240, 360, 520]) {
   ms = Number(process.hrtime.bigint() - t0) / 1e6;
   console.log(`stress ${S.n} moves, grid ${ss.nx}x${ss.ny}: ${ms.toFixed(0)} ms (${(S.n / ms * 1000 / 1000).toFixed(1)}k moves/s)`);
 }
+// ---- numbered-drill naming: "25 .1496 140DEG..." (real APW name, T86 in O1224.NC) - the
+// leading "25" is a drill index, not 25 inches; the real diameter is the decimal after it.
+{
+  const td = { no: 86 }; NC.guessFromName(td, '25 .1496 140DEG CARB DRILL TSC', true);
+  near(td.D, 0.1496 * 25.4, 1e-6, 'numbered-drill index is not mistaken for a 25" diameter');
+  const td2 = { no: 35 }; NC.guessFromName(td2, '16 .1772 140DEG CARB DRILL TSC', true);
+  near(td2.D, 0.1772 * 25.4, 1e-6, 'a second numbered drill (T35 in O1224.NC) parses the same way');
+  const td3 = { no: 1 }; NC.guessFromName(td3, '3/8 7FL Roughing EM', true);
+  near(td3.D, 0.375 * 25.4, 1e-6, 'fraction-led names are unaffected by the numbered-drill fix');
+  const td4 = { no: 2 }; NC.guessFromName(td4, '.2344 15/64 DRILL 5XD 140DEG TSC', true);
+  near(td4.D, 0.2344 * 25.4, 1e-6, 'decimal-led names are unaffected too');
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

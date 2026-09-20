@@ -129,10 +129,14 @@ const NC = (() => {
     const s = String(name).toUpperCase(), sc = inch ? 25.4 : 1;
     t.type = typeFromText(s);
     if (UNDERCUT_RE.test(s)) t.undercut = true;
-    const lead = /^\s*(?:(\d+)\/(\d+)|(\d*\.\d+)|(\d+))\s*(MM)?/.exec(s);
+    // Numbered/lettered drill convention (e.g. "25 .1496 140DEG CARB DRILL TSC", a real APW
+    // name): a bare leading integer followed by a decimal is the drill's index, not its size -
+    // the decimal right after it is the real diameter. Without this, "25 ..." reads as 25 inches.
+    const idxThenSize = /^\s*\d+\s+(\d*\.\d+)\b/.exec(s);
+    const lead = idxThenSize || /^\s*(?:(\d+)\/(\d+)|(\d*\.\d+)|(\d+))\s*(MM)?/.exec(s);
     if (lead) {
-      const v = lead[1] ? +lead[1] / +lead[2] : (lead[3] ? +lead[3] : +lead[4]);
-      t.D = lead[5] ? v : v * sc;
+      if (idxThenSize) t.D = +lead[1] * sc;
+      else { const v = lead[1] ? +lead[1] / +lead[2] : (lead[3] ? +lead[3] : +lead[4]); t.D = lead[5] ? v : v * sc; }
     }
     const cr = /(\d*\.\d+)\s*R\b/.exec(s);
     if (cr && t.type === 'bull') t.rc = +cr[1] * sc;
@@ -479,19 +483,34 @@ const NC = (() => {
     let tt = 0, px = P.init.x, py = P.init.y, pz = P.init.z;
     const b = { xmin: 1e9, xmax: -1e9, ymin: 1e9, ymax: -1e9, zmin: 1e9, zmax: -1e9 };
     const ball = { xmin: 1e9, xmax: -1e9, ymin: 1e9, ymax: -1e9, zmin: 1e9, zmax: -1e9 };
+    const b0 = { xmin: 1e9, xmax: -1e9, ymin: 1e9, ymax: -1e9, zmin: 1e9, zmax: -1e9 };
+    const ball0 = { xmin: 1e9, xmax: -1e9, ymin: 1e9, ymax: -1e9, zmin: 1e9, zmax: -1e9 };
     for (let i = 0; i < n; i++) {
-      const d = Math.hypot(P.X[i] - px, P.Y[i] - py, P.Z[i] - pz);
+      // A move right after a plane switch has no valid "from" point in this move's frame - same
+      // reasoning as cutMove's guard. Skip its distance/time contribution rather than measuring
+      // a meaningless cross-frame jump; this move's own end point still becomes px/py/pz below.
+      const samePlane = !(P.PL && i > 0 && P.PL[i - 1] !== P.PL[i]);
+      const d = samePlane ? Math.hypot(P.X[i] - px, P.Y[i] - py, P.Z[i] - pz) : 0;
       const sp = P.K[i] ? (P.F[i] > 0 ? P.F[i] : 500) : RAPID_MMPM;
       tt += d / (sp / 60); P.cumT[i] = tt;
       const bb = P.K[i] ? b : ball;
       bb.xmin = Math.min(bb.xmin, P.X[i]); bb.xmax = Math.max(bb.xmax, P.X[i]);
       bb.ymin = Math.min(bb.ymin, P.Y[i]); bb.ymax = Math.max(bb.ymax, P.Y[i]);
       bb.zmin = Math.min(bb.zmin, P.Z[i]); bb.zmax = Math.max(bb.zmax, P.Z[i]);
+      // Same bounds, but base-plane (0) moves only - a program's tilted-plane moves are in
+      // unrelated local frames and would otherwise wreck the auto-guessed base stock box.
+      if (!P.PL || P.PL[i] === 0) {
+        const bb0 = P.K[i] ? b0 : ball0;
+        bb0.xmin = Math.min(bb0.xmin, P.X[i]); bb0.xmax = Math.max(bb0.xmax, P.X[i]);
+        bb0.ymin = Math.min(bb0.ymin, P.Y[i]); bb0.ymax = Math.max(bb0.ymax, P.Y[i]);
+        bb0.zmin = Math.min(bb0.zmin, P.Z[i]); bb0.zmax = Math.max(bb0.zmax, P.Z[i]);
+      }
       px = P.X[i]; py = P.Y[i]; pz = P.Z[i];
     }
     P.total = tt;
-    P.bounds = b.xmin <= b.xmax ? b : ball;
-    P.feedBounds = b.xmin <= b.xmax;
+    // Prefer base-plane-only bounds; fall back to every move only if the base plane somehow has none.
+    P.bounds = b0.xmin <= b0.xmax ? b0 : (ball0.xmin <= ball0.xmax ? ball0 : (b.xmin <= b.xmax ? b : ball));
+    P.feedBounds = b0.xmin <= b0.xmax || b.xmin <= b.xmax;
     return P;
   }
 

@@ -11,7 +11,7 @@ const hexRGB = h => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 
 const BLUE = [0.24, 0.48, 1.0], GREEN = [0.21, 0.77, 0.39], NEUTRAL = [0.62, 0.68, 0.75], STEEL = [0.5, 0.55, 0.61];
 
 const S = {
-  prog: null, name: '', tools: [], simTools: new Map(), sim: null, snaps: [], finalH: null, finalOp: null,
+  prog: null, name: '', tools: [], simTools: new Map(), sim: null, sims: new Map(), planes: new Map(), snaps: [], finalH: null, finalOp: null,
   tau: 0, cur: { i: 0, f: 0 }, playing: false, speed: 30, pendingSeek: null, mode: 'progress', res: 360,
   token: 0, ready: false, curOp: -1, limited: false, stats: {}, needsRender: true, stock: null,
   path: 'op', rapids: false, holder: true, ghost: true, hudTool: -1, hudLine: -1, toolsDirty: false, setup: null, fixtures: true,
@@ -60,14 +60,32 @@ function panBy(dx, dy) {
   orb.tx += (-dx * m[0] + dy * m[4]) * s; orb.ty += (-dx * m[1] + dy * m[5]) * s; orb.tz += (-dx * m[2] + dy * m[6]) * s;
   applyCamera();
 }
+// World-space AABB across every plane's stock box (base plane's transform is identity, so this
+// is bit-identical to using S.sim alone whenever there are no tilted planes).
+function worldPlaneBounds() {
+  const b = { xmin: Infinity, xmax: -Infinity, ymin: Infinity, ymax: -Infinity, zmin: Infinity, zmax: -Infinity };
+  for (const [id, pl] of S.planes) {
+    const sim = pl.sim, def = S.prog.planes.find(p => p.id === id), m = def.matrix, [ox, oy, oz] = def.origin;
+    const x1 = sim.x0 + sim.nx * sim.dx, y1 = sim.y0 + sim.ny * sim.dy;
+    for (const lx of [sim.x0, x1]) for (const ly of [sim.y0, y1]) for (const lz of [sim.zBot, sim.zTop]) {
+      const wx = ox + m[0][0] * lx + m[0][1] * ly + m[0][2] * lz;
+      const wy = oy + m[1][0] * lx + m[1][1] * ly + m[1][2] * lz;
+      const wz = oz + m[2][0] * lx + m[2][1] * ly + m[2][2] * lz;
+      if (wx < b.xmin) b.xmin = wx; if (wx > b.xmax) b.xmax = wx;
+      if (wy < b.ymin) b.ymin = wy; if (wy > b.ymax) b.ymax = wy;
+      if (wz < b.zmin) b.zmin = wz; if (wz > b.zmax) b.zmax = wz;
+    }
+  }
+  return b;
+}
 function setView(name) {
   const sim = S.sim;
   if (name === 'fit' || name === 'iso') { orb.az = -0.8; orb.el = 0.6; }
   if (name === 'top') { orb.az = -Math.PI / 2; orb.el = 1.52; }
   if (name === 'front') { orb.az = -Math.PI / 2; orb.el = 0.04; }
   if (sim && (name === 'fit' || name === 'iso' || name === 'top' || name === 'front')) {
-    const W = sim.nx * sim.dx, H = sim.ny * sim.dy, T = sim.zTop - sim.zBot;
-    orb.tx = sim.x0 + W / 2; orb.ty = sim.y0 + H / 2; orb.tz = sim.zTop - Math.min(T, 25) / 2;
+    const b = worldPlaneBounds(), W = b.xmax - b.xmin, H = b.ymax - b.ymin, T = b.zmax - b.zmin;
+    orb.tx = (b.xmin + b.xmax) / 2; orb.ty = (b.ymin + b.ymax) / 2; orb.tz = b.zmax - Math.min(T, 25) / 2;
     orb.dist = Math.max(W, H, T) * 1.9 + 30;
   }
   applyCamera();
@@ -99,14 +117,28 @@ cv.addEventListener('wheel', e => { e.preventDefault(); orb.dist = clamp(orb.dis
 /* ---------- stock mesh (height field, corner vertices) ---------- */
 const STOCK = { group: new THREE.Group(), top: null };
 scene.add(STOCK.group);
+// 3+2 Phase 3: one extra stock mesh per tilted plane, held here (STOCK itself stays the base
+// plane's mesh, unchanged). Each tilted mesh's geometry is built entirely in that plane's own
+// local coordinates - identical code to the base plane - and placed in world space purely by
+// positioning/rotating its group with that plane's origin/matrix from engine.js.
+const TILT_ROOT = new THREE.Group(); scene.add(TILT_ROOT);
+function planeQuaternion(m) {
+  const m4 = new THREE.Matrix4().set(
+    m[0][0], m[0][1], m[0][2], 0,
+    m[1][0], m[1][1], m[1][2], 0,
+    m[2][0], m[2][1], m[2][2], 0,
+    0, 0, 0, 1
+  );
+  return new THREE.Quaternion().setFromRotationMatrix(m4);
+}
 function clearGroup(g) {
   for (const c of g.children.slice()) {
     g.remove(c);
     c.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); });
   }
 }
-function computeZV(h, out, vi0, vi1, vj0, vj1) {
-  const sim = S.sim, nx = sim.nx, ny = sim.ny, vx = nx + 1;
+function computeZV(sim, h, out, vi0, vi1, vj0, vj1) {
+  const nx = sim.nx, ny = sim.ny, vx = nx + 1;
   for (let j = vj0; j <= vj1; j++) {
     const ja = j > 0 ? j - 1 : 0, jb = j < ny ? j : ny - 1;
     for (let i = vi0; i <= vi1; i++) {
@@ -115,9 +147,13 @@ function computeZV(h, out, vi0, vi1, vj0, vj1) {
     }
   }
 }
-function buildStock() {
-  clearGroup(STOCK.group);
-  const sim = S.sim, nx = sim.nx, ny = sim.ny, vx = nx + 1, vy = ny + 1, nv = vx * vy;
+// sim/finalH: which plane. stock: the mesh-holder object to (re)build into (STOCK for the base
+// plane, one per tilted plane otherwise - see buildTiltStocks). Every tilted plane's stock.group
+// is positioned/rotated by that plane's own transform, so the geometry itself stays in the
+// plane's local coordinates, exactly like the base plane's always has been.
+function buildStock(sim, stock, finalH) {
+  clearGroup(stock.group);
+  const nx = sim.nx, ny = sim.ny, vx = nx + 1, vy = ny + 1, nv = vx * vy;
   const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), col = new Float32Array(nv * 3);
   for (let j = 0; j < vy; j++) for (let i = 0; i < vx; i++) {
     const k = j * vx + i; pos[k * 3] = sim.x0 + i * sim.dx; pos[k * 3 + 1] = sim.y0 + j * sim.dy; pos[k * 3 + 2] = sim.zTop; nor[k * 3 + 2] = 1;
@@ -134,9 +170,9 @@ function buildStock() {
   geo.setAttribute('position', aPos); geo.setAttribute('normal', aNor); geo.setAttribute('color', aCol);
   geo.setIndex(new THREE.BufferAttribute(idx, 1));
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-  const top = new THREE.Mesh(geo, mat); top.frustumCulled = false; STOCK.group.add(top);
-  Object.assign(STOCK, { top, aPos, aNor, aCol, pos, nor, col, vx, zv: new Float32Array(nv).fill(sim.zTop), zvF: new Float32Array(nv) });
-  computeZV(S.finalH, STOCK.zvF, 0, nx, 0, ny);
+  const top = new THREE.Mesh(geo, mat); top.frustumCulled = false; stock.group.add(top);
+  Object.assign(stock, { top, aPos, aNor, aCol, pos, nor, col, vx, zv: new Float32Array(nv).fill(sim.zTop), zvF: new Float32Array(nv) });
+  computeZV(sim, finalH, stock.zvF, 0, nx, 0, ny);
 
   // side walls follow the outline of the top surface
   const per = [];
@@ -159,7 +195,7 @@ function buildStock() {
   const aSp = new THREE.BufferAttribute(sp, 3).setUsage(THREE.DynamicDrawUsage);
   sg.setAttribute('position', aSp); sg.setAttribute('normal', new THREE.BufferAttribute(sn, 3)); sg.setAttribute('color', new THREE.BufferAttribute(sc, 3)); sg.setIndex(new THREE.BufferAttribute(si, 1));
   const skirt = new THREE.Mesh(sg, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })); skirt.frustumCulled = false;
-  STOCK.group.add(skirt); Object.assign(STOCK, { per, sp, aSp });
+  stock.group.add(skirt); Object.assign(stock, { per, sp, aSp });
 
   // underside
   const x0 = sim.x0, x1 = sim.x0 + nx * sim.dx, y0 = sim.y0, y1 = sim.y0 + ny * sim.dy, zb = sim.zBot;
@@ -168,18 +204,18 @@ function buildStock() {
   bg.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1]), 3));
   bg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(12).fill(0.4), 3));
   bg.setIndex([0, 1, 2, 0, 2, 3]);
-  STOCK.group.add(new THREE.Mesh(bg, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+  stock.group.add(new THREE.Mesh(bg, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })));
 
   // outline of the original stock block
   const W = x1 - x0, H = y1 - y0, T = sim.zTop - sim.zBot;
   const ghost = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(W, H, T)), new THREE.LineBasicMaterial({ color: 0x8595a6, transparent: true, opacity: 0.6 }));
   ghost.position.set(x0 + W / 2, y0 + H / 2, sim.zBot + T / 2); ghost.visible = S.ghost;
-  STOCK.group.add(ghost); STOCK.ghost = ghost;
+  stock.group.add(ghost); stock.ghost = ghost;
 }
 const TOOL_RGB = new Map();
-function paint(vi0, vi1, vj0, vj1) {
-  const sim = S.sim, nx = sim.nx, ny = sim.ny, vx = nx + 1, dx = sim.dx, dy = sim.dy;
-  const { zv, zvF, pos, nor, col } = STOCK, h = sim.h, ops = sim.op, progress = S.mode === 'progress', P = S.prog;
+function paint(sim, stock, vi0, vi1, vj0, vj1) {
+  const nx = sim.nx, ny = sim.ny, vx = nx + 1, dx = sim.dx, dy = sim.dy;
+  const { zv, zvF, pos, nor, col } = stock, h = sim.h, ops = sim.op, progress = S.mode === 'progress', P = S.prog;
   for (let j = vj0; j <= vj1; j++) {
     const jl = j > 0 ? j - 1 : j, jr = j < ny ? j + 1 : j;
     for (let i = vi0; i <= vi1; i++) {
@@ -205,21 +241,21 @@ function paint(vi0, vi1, vj0, vj1) {
     }
   }
 }
-function refreshStock(full) {
-  const sim = S.sim; if (!sim || !STOCK.top) return;
+function refreshStock(sim, stock, full) {
+  if (!sim || !stock.top) return;
   let i0 = sim.di0, i1 = sim.di1, j0 = sim.dj0, j1 = sim.dj1;
   if (full) { i0 = 0; i1 = sim.nx - 1; j0 = 0; j1 = sim.ny - 1; }
   if (i1 < i0 || j1 < j0) return;
   const nx = sim.nx, ny = sim.ny, vx = nx + 1;
   const v1i = Math.min(nx, i1 + 1), v1j = Math.min(ny, j1 + 1);
-  computeZV(sim.h, STOCK.zv, i0, v1i, j0, v1j);
+  computeZV(sim, sim.h, stock.zv, i0, v1i, j0, v1j);
   const p0i = Math.max(0, i0 - 1), p1i = Math.min(nx, v1i + 1), p0j = Math.max(0, j0 - 1), p1j = Math.min(ny, v1j + 1);
-  paint(p0i, p1i, p0j, p1j);
+  paint(sim, stock, p0i, p1i, p0j, p1j);
   const off = full ? 0 : p0j * vx * 3, cnt = full ? -1 : (p1j - p0j + 1) * vx * 3;
-  for (const a of [STOCK.aPos, STOCK.aNor, STOCK.aCol]) { a.updateRange.offset = off; a.updateRange.count = cnt; a.needsUpdate = true; }
-  const zv = STOCK.zv, sp = STOCK.sp;
-  STOCK.per.forEach((p, k) => { sp[(2 * k) * 3 + 2] = zv[p[1] * vx + p[0]]; });
-  STOCK.aSp.needsUpdate = true;
+  for (const a of [stock.aPos, stock.aNor, stock.aCol]) { a.updateRange.offset = off; a.updateRange.count = cnt; a.needsUpdate = true; }
+  const zv = stock.zv, sp = stock.sp;
+  stock.per.forEach((p, k) => { sp[(2 * k) * 3 + 2] = zv[p[1] * vx + p[0]]; });
+  stock.aSp.needsUpdate = true;
   sim.clearDirty(); invalidate();
 }
 
@@ -493,20 +529,25 @@ async function handleFiles(files) {
   if (b.csv || b.lib || b.setup) toast('Open the program (.NC) first, or select it together with the CSV, .tools and setup files.');
 }
 
-async function prepass(token) {
-  const P = S.prog, sim = S.sim, n = P.n;
-  sim.reset();
-  const bytes = sim.nx * sim.ny * 6, maxSnaps = clamp(Math.floor(90e6 / bytes), 6, 60), every = Math.max(64, Math.ceil(n / maxSnaps));
+// sims: Map<planeId, HeightSim>, one per plane actually used (buildPlaneSims). Snapshots now
+// hold every plane's state together (state: Map<planeId, {h,op}>) so scrubbing restores all
+// planes in lockstep off the one shared program timeline.
+async function prepass(token, sims) {
+  const P = S.prog, n = P.n;
+  for (const sim of sims.values()) sim.reset();
+  let bytes = 0; for (const sim of sims.values()) bytes += sim.nx * sim.ny * 6;
+  const maxSnaps = clamp(Math.floor(90e6 / Math.max(1, bytes)), 6, 60), every = Math.max(64, Math.ceil(n / maxSnaps));
   const snaps = [], t0 = performance.now(); let last = t0;
   for (let i = 0; i < n; i++) {
-    if (i % every === 0) snaps.push(Object.assign({ i }, sim.snapshot()));
-    NC.cutMove(sim, P, S.simTools, i, 0, 1);
+    if (i % every === 0) { const state = new Map(); for (const [id, sim] of sims) state.set(id, sim.snapshot()); snaps.push({ i, state }); }
+    NC.cutMoveMulti(sims, P, S.simTools, i, 0, 1);
     if ((i & 15) === 15) {
       const now = performance.now();
       if (now - last > 30) { showBusy('Simulating the whole program', i / n); await new Promise(r => setTimeout(r, 0)); if (token !== S.token) return null; last = performance.now(); }
     }
   }
-  return { snaps, finalH: sim.h.slice(), finalOp: sim.op.slice(), ms: performance.now() - t0 };
+  const finals = new Map(); for (const [id, sim] of sims) finals.set(id, { h: sim.h.slice(), op: sim.op.slice() });
+  return { snaps, finals, ms: performance.now() - t0 };
 }
 async function rebuild(fresh) {
   const token = ++S.token; S.ready = false; S.playing = false; updatePlay(); hideProbe();
@@ -516,14 +557,38 @@ async function rebuild(fresh) {
   showBusy('Preparing simulation', 0);
   await new Promise(r => setTimeout(r, 30));
   S.simTools = new Map(S.tools.map(t => [t.no, NC.simTool(t)]));
-  S.sim = new NC.HeightSim({ xmin: box.xmin, xmax: box.xmax, ymin: box.ymin, ymax: box.ymax, zbot: box.zbot, ztop: box.ztop }, S.res);
+  S.sims = NC.buildPlaneSims(S.prog, { xmin: box.xmin, xmax: box.xmax, ymin: box.ymin, ymax: box.ymax, zbot: box.zbot, ztop: box.ztop }, S.res);
+  S.sim = S.sims.get(0);
   let r;
-  try { r = await prepass(token); } catch (err) { console.error(err); hideBusy(); toast('Simulation failed: ' + err.message); return; }
+  try { r = await prepass(token, S.sims); } catch (err) { console.error(err); hideBusy(); toast('Simulation failed: ' + err.message); return; }
   if (!r || token !== S.token) return;
-  S.snaps = r.snaps; S.finalH = r.finalH; S.finalOp = r.finalOp; S.stats = { ms: r.ms, moves: S.prog.n, nx: S.sim.nx, ny: S.sim.ny, dx: S.sim.dx };
-  buildToolGroups(); buildStock(); buildFixtures();
-  S.sim.restore(S.snaps[0]); S.cur = { i: 0, f: 0 }; S.tau = 0; S.curOp = -1; S.hudLine = -1; S.hudTool = -1;
-  refreshStock(true); updateTool(); applyPaths(); buildLegend();
+  S.snaps = r.snaps; S.finalH = r.finals.get(0).h; S.finalOp = r.finals.get(0).op;
+  S.stats = { ms: r.ms, moves: S.prog.n, nx: S.sim.nx, ny: S.sim.ny, dx: S.sim.dx };
+
+  // one mesh-holder per plane: STOCK itself for the base plane (same object every rebuild, as
+  // always), a fresh one per tilted plane positioned/rotated by that plane's own transform.
+  clearGroup(TILT_ROOT);
+  S.planes = new Map();
+  for (const pl of S.prog.planes) {
+    if (!S.sims.has(pl.id)) continue;
+    let stock;
+    if (pl.id === 0) stock = STOCK;
+    else {
+      stock = { group: new THREE.Group() };
+      stock.group.position.set(pl.origin[0], pl.origin[1], pl.origin[2]);
+      stock.group.quaternion.copy(planeQuaternion(pl.matrix));
+      TILT_ROOT.add(stock.group);
+    }
+    const sim = S.sims.get(pl.id), fin = r.finals.get(pl.id);
+    buildStock(sim, stock, fin.h);
+    S.planes.set(pl.id, { sim, stock, finalH: fin.h, finalOp: fin.op });
+  }
+
+  buildToolGroups(); buildFixtures();
+  for (const [id, sim] of S.sims) sim.restore(S.snaps[0].state.get(id));
+  S.cur = { i: 0, f: 0 }; S.tau = 0; S.curOp = -1; S.hudLine = -1; S.hudTool = -1;
+  for (const pl of S.planes.values()) refreshStock(pl.sim, pl.stock, true);
+  updateTool(); applyPaths(); buildLegend();
   if (fresh || !S.camSet) { setView('fit'); S.camSet = true; }
   const target = S.prog.total / 30;
   const opts = [...$('speedSel').options].map(o => +o.value);
@@ -538,11 +603,11 @@ function advance(target, budget) {
   while (i < n) {
     const s0 = i > 0 ? cum[i - 1] : 0, e0 = cum[i], dur = e0 - s0;
     if (target >= e0 || dur <= 1e-12) {
-      NC.cutMove(S.sim, P, S.simTools, i, f, 1); i++; f = 0; S.tau = e0;
+      NC.cutMoveMulti(S.sims, P, S.simTools, i, f, 1); i++; f = 0; S.tau = e0;
       if ((++cnt & 7) === 0 && performance.now() - t0 > budget) { S.limited = true; break; }
     } else {
       const nf = (target - s0) / dur;
-      if (nf > f) { NC.cutMove(S.sim, P, S.simTools, i, f, nf); f = nf; }
+      if (nf > f) { NC.cutMoveMulti(S.sims, P, S.simTools, i, f, nf); f = nf; }
       S.tau = target; break;
     }
   }
@@ -561,7 +626,10 @@ function goTo(tau) {
   const tgt = locate(tau), cur = S.cur;
   let snap = null; for (const s of S.snaps) if (s.i <= tgt.i) snap = s; else break;
   const back = tgt.i < cur.i || (tgt.i === cur.i && tgt.f < cur.f);
-  if (snap && (back || snap.i > cur.i)) { S.sim.restore(snap); S.cur = { i: snap.i, f: 0 }; S.tau = snap.i > 0 ? P.cumT[snap.i - 1] : 0; }
+  if (snap && (back || snap.i > cur.i)) {
+    for (const [id, sim] of S.sims) sim.restore(snap.state.get(id));
+    S.cur = { i: snap.i, f: 0 }; S.tau = snap.i > 0 ? P.cumT[snap.i - 1] : 0;
+  }
   advance(tau, 220);
   if (S.tau < tau - 1e-6 && S.cur.i < P.n) S.pendingSeek = tau;
 }
@@ -694,7 +762,7 @@ $('themeBtn').onclick = () => {
 document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
   S.mode = b.dataset.mode;
   document.querySelectorAll('[data-mode]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-  if (S.sim && S.prog) { buildLegend(); refreshStock(true); }
+  if (S.sim && S.prog) { buildLegend(); for (const pl of S.planes.values()) refreshStock(pl.sim, pl.stock, true); }
 });
 document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
 $('bPlay').onclick = togglePlay;
@@ -742,7 +810,8 @@ function frame(now) {
         advance(Math.min(S.prog.total, S.tau + dt * S.speed), 9);
         if (S.tau >= S.prog.total - 1e-9 && S.cur.i >= S.prog.n) { S.playing = false; updatePlay(); }
       }
-      refreshStock(false); updateTool(); updateHud(false);
+      for (const pl of S.planes.values()) refreshStock(pl.sim, pl.stock, false);
+      updateTool(); updateHud(false);
     }
     if (S.needsRender) { S.needsRender = false; renderer.render(scene, camera); fpsN++; }
     if (now - fpsT > 1000) { S.fps = S.playing ? Math.round(fpsN * 1000 / (now - fpsT)) : 0; fpsN = 0; fpsT = now; updateChips(false); }

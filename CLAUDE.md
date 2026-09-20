@@ -89,9 +89,11 @@ npm test           # all suites; needs Node 18+ and Python 3 for the Fusion-side
 - No undercut tools (T-slot, dovetail, lollipop, woodruff...): detected by name (`UNDERCUT_RE` in engine.js) and flagged
   in the warnings; stock removal is skipped for that tool (toolpath still plays) rather than simulated wrong. A real
   multi-interval-dexel fix is a deliberately deferred, separate project — see NOTES.md.
-- No overhang stock, no full continuous 5-axis motion. 3+2 (tilted work plane via G68.2/G53.1/G69) is parsed and each
-  move is tagged with its plane (see NOTES.md) but stock removal for tilted planes is **not yet simulated correctly**
-  — in progress, see Roadmap. Bare A/B/C rotary moves with no G68.2 are still ignored.
+- No overhang stock, no full continuous 5-axis motion (bare A/B/C rotary moves with no G68.2 are still ignored). 3+2
+  (tilted work plane via G68.2/G53.1/G69) **is simulated and rendered**, one real HeightSim per plane, verified visually
+  against a real job (see NOTES.md) — but the probe (click-to-see-what-cut-this) only works on the base plane, and a
+  program with no real stock box supplied can render with the base block's auto-guessed size hiding the tilted meshes
+  inside it (known, left alone for now — see NOTES.md).
   "Stock from previous setup" cannot be chained across a flip (only the bounding box is used).
 - Cutter compensation G41/G42 is **not** applied: John confirmed his contours are tool-centre paths using wear comp.
 - Peck cycles (G73/G83) are simulated as one plunge. Rapids never cut. No holder/fixture collision.

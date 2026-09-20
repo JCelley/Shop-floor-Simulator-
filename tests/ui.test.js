@@ -75,7 +75,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(d.getElementById('legend').textContent.includes('T3'), 'by-tool legend lists tools');
   d.querySelector('[data-mode="progress"]').click();
   // probe
-  S.sim.restore(S.snaps[0]); S.sim.reset();
+  S.sim.restore(S.snaps[0].state.get(0)); S.sim.reset();
   F.goTo(S.prog.total); await sleep(50);
 
   // ---- camera controls + probe
