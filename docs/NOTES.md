@@ -45,7 +45,7 @@ skipped, **G100 tool change**, M3/M4/M5, M7/M8/M9, M88/M89, M494/M495, R-word ar
 to 0.004 mm chord error. Output is struct-of-arrays: `X,Y,Z` end points, `K` (0 rapid, 1 feed), `F,S,TL,CO,OP,LN`, plus `PL` (tilted-plane
 index per move, see below), `ops`, `tools`, `planes`, `cumT` (cumulative seconds; rapids at 24000 mm/min), `bounds` (of feed moves), `notes`, `warnings`.
 
-**3+2 / tilted work planes (Phase 1 of 3, in progress — parsing only, stock removal not yet fixed).** APW's 3+2 programs use
+**3+2 / tilted work planes (Phases 1-2 of 3 done, page not yet wired up).** APW's 3+2 programs use
 `G68.2 X_ Y_ Z_ I_ J_ K_` to define a tilted plane (I=roll about X, J=pitch about Y, K=yaw about Z, degrees), `G53.1` right
 after it to activate Tool Center Point Control (motion from here on is written in the tilted plane's own local coordinates,
 not machine space), and `G69` to cancel back to the base frame. **Verified against a real job (O1224, 3+2 outlet-fitting-style
@@ -56,11 +56,26 @@ orientations into one `planes[]` entry, (c) tags every move with `PL[i]` = which
 each plane's rotation matrix as `Rz(K)·Ry(J)·Rx(I)` (Fanuc's default Q123 order - matches documentation, cross-checked as a
 proper rotation (orthonormal, det +1) and against one easy case (pure yaw stays "up"), but **not yet confirmed against this
 machine's actual A/C kinematics** - do that visually once oriented rendering exists (Phase 3)), (e) replaces the old generic
-"rotary axis moves ignored" warning with a specific tilted-plane note when any G68.2 is found. **Stock removal still applies
-every move's local X/Y/Z directly to the single base-frame height field regardless of `PL`** - i.e. loading a 3+2 program
-today still visually cuts tilted-plane operations in the wrong place, just without the extra phantom-move glitch. Phase 2
-(one HeightSim per distinct plane) and Phase 3 (combined oriented rendering) are not built yet. Test: `tests/tilt.test.js`,
-fixture `fixtures/O1224.NC`.
+"rotary axis moves ignored" warning with a specific tilted-plane note when any G68.2 is found.
+
+**Phase 2 (`buildPlaneSims`, `cutMoveMulti`, `boxFromMoves`) is done and tested against O1224**: one `HeightSim` per plane
+actually used, each cut with the *same* `cutMove`/`HeightSim.cut` as everywhere else since a plane's moves are already in
+its own local coordinates - the only new work was routing each move to the right sim and fitting each tilted plane's box
+from its own move extents (padded 5 mm default; we have no real stock shape for a tilted face - see the parked
+cylinder/solid-stock discussion below). `cutMove` also gained a guard: a move whose previous move was on a *different*
+plane is not cut (no valid local "from" point) - never fires in practice since the shop always rapids into position
+first, and rapids don't cut anyway. Verified: every plane with a non-undercut tool doing feed moves shows real material
+removed, and simulating one plane's moves in isolation gives bit-identical results to running the whole program through
+the router (no cross-plane leakage). Test: `tests/planes.test.js`.
+
+**Not done: Phase 3 (rendering).** `app.js` still builds a single `HeightSim` and calls the original single-sim `cutMove`
+directly - it does not use `buildPlaneSims`/`cutMoveMulti` yet, so **loading a 3+2 program in the actual page still visually
+cuts tilted-plane operations in the wrong place** (though without the Phase-1 phantom-move glitch). Phase 3 needs: transform
+each plane's mesh into world space with its `origin`/`matrix` before drawing, one stock mesh per plane instead of one for
+the whole job, per-plane progress/final-surface colouring, and a probe that ray-marches the right plane's mesh. Also still
+unconfirmed: the `G68.2` rotation convention against this machine's actual A/C kinematics - do that visually once Phase 3
+renders something to look at. Fixture: `fixtures/O1224.NC`. Tests: `tests/tilt.test.js` (Phase 1), `tests/planes.test.js`
+(Phase 2).
 
 Unit rule: `opts.units` if given, else the first G20/G21, else a heuristic (`guessInch`: max |XY| under 40 and median feed under 250 means
 inches). A note is shown when the heuristic is used.

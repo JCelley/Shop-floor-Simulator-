@@ -937,12 +937,71 @@ const NC = (() => {
   // cut part f0..f1 of move i (feed moves only; rapids do not cut)
   function cutMove(sim, P, simTools, i, f0, f1) {
     if (!P.K[i] || f1 <= f0) return;
+    // A move right after a tilted-plane switch has no valid "from" point in the new plane's own
+    // coordinates (P.X[i-1] would still be in whatever frame the previous move was in) - safest is
+    // to not cut it rather than draw a bogus segment. In practice this never fires: the shop's
+    // programs always rapid into position first, and rapids don't cut anyway.
+    if (P.PL && i > 0 && P.PL[i - 1] !== P.PL[i]) return;
     const sx = i > 0 ? P.X[i - 1] : P.init.x, sy = i > 0 ? P.Y[i - 1] : P.init.y, sz = i > 0 ? P.Z[i - 1] : P.init.z;
     const ex = P.X[i], ey = P.Y[i], ez = P.Z[i];
     const T = simTools.get(P.TL[i]);
     if (!T || T.undercut) return;   // undercut tools (T-slot/dovetail/lollipop) shown as toolpath only
     sim.cut(sx + (ex - sx) * f0, sy + (ey - sy) * f0, sz + (ez - sz) * f0,
             sx + (ex - sx) * f1, sy + (ey - sy) * f1, sz + (ez - sz) * f1, T, P.OP[i] + 1);
+  }
+
+  /* ---------- Phase 2 of 3+2 support: one HeightSim per tilted plane ----------
+     Each plane's moves are already in that plane's own local coordinates (that's what
+     G53.1/TCPC means - see docs/NOTES.md), so cutting is the *same* cutMove/HeightSim.cut
+     used everywhere else; the only new part is routing each move to the right sim and
+     sizing each tilted plane's box from its own moves (we don't have a real stock shape
+     for a tilted face - see the parked cylinder/solid-stock discussion in NOTES.md). */
+
+  // Bounding box (mm) of one plane's own moves, preferring feed moves (tighter, matches
+  // how the program's overall P.bounds already prefers feed moves over rapids).
+  function boxFromMoves(P, planeId, pad) {
+    const b = { xmin: Infinity, xmax: -Infinity, ymin: Infinity, ymax: -Infinity, zmin: Infinity, zmax: -Infinity };
+    const any = { xmin: Infinity, xmax: -Infinity, ymin: Infinity, ymax: -Infinity, zmin: Infinity, zmax: -Infinity };
+    let hasFeed = false, hasAny = false;
+    for (let i = 0; i < P.n; i++) {
+      if (P.PL[i] !== planeId) continue;
+      hasAny = true;
+      any.xmin = Math.min(any.xmin, P.X[i]); any.xmax = Math.max(any.xmax, P.X[i]);
+      any.ymin = Math.min(any.ymin, P.Y[i]); any.ymax = Math.max(any.ymax, P.Y[i]);
+      any.zmin = Math.min(any.zmin, P.Z[i]); any.zmax = Math.max(any.zmax, P.Z[i]);
+      if (P.K[i]) {
+        hasFeed = true;
+        b.xmin = Math.min(b.xmin, P.X[i]); b.xmax = Math.max(b.xmax, P.X[i]);
+        b.ymin = Math.min(b.ymin, P.Y[i]); b.ymax = Math.max(b.ymax, P.Y[i]);
+        b.zmin = Math.min(b.zmin, P.Z[i]); b.zmax = Math.max(b.zmax, P.Z[i]);
+      }
+    }
+    if (!hasAny) return null;
+    const r = hasFeed ? b : any;
+    return { xmin: r.xmin - pad, xmax: r.xmax + pad, ymin: r.ymin - pad, ymax: r.ymax + pad, zbot: r.zmin - pad, ztop: r.zmax + pad };
+  }
+
+  // One HeightSim per plane actually used by the program. Plane 0 (the base frame) uses the
+  // real stock box (box0, from Fusion or the page's guess, same as always); every tilted plane
+  // gets a box fitted to its own move extents, padded by `pad` mm (default a generous amount
+  // since we have no real stock shape to go on for a tilted face).
+  function buildPlaneSims(P, box0, target, pad) {
+    if (pad == null) pad = 5;
+    const used = new Set(P.PL);
+    const sims = new Map();
+    for (const id of used) {
+      const box = id === 0 ? box0 : boxFromMoves(P, id, pad);
+      if (!box) continue;
+      sims.set(id, new HeightSim(box, target));
+    }
+    return sims;
+  }
+
+  // Cut move i into whichever plane's sim it belongs to. Moves on a plane with no sim
+  // (shouldn't happen - buildPlaneSims covers every plane with moves) are silently skipped.
+  function cutMoveMulti(sims, P, simTools, i, f0, f1) {
+    const sim = sims.get(P.PL[i]);
+    if (sim) cutMove(sim, P, simTools, i, f0, f1);
   }
 
   /* ---------- sample programs ---------- */
@@ -1022,7 +1081,7 @@ const NC = (() => {
   }
 
   return { parseProgram, completeTool, simTool, prof, holderSegments, applyLibrary, typeFromText, parseSetupCsv, applyCsvTools, unzipText, guessFromName,
-           HeightSim, cutMove, demoProgram, stressProgram, RAPID_MMPM };
+           HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti, demoProgram, stressProgram, RAPID_MMPM };
 })();
 if (typeof module !== 'undefined') module.exports = NC;
 
