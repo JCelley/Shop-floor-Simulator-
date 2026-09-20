@@ -15,6 +15,7 @@ const S = {
   tau: 0, cur: { i: 0, f: 0 }, playing: false, speed: 30, pendingSeek: null, mode: 'progress', res: 360,
   token: 0, ready: false, curOp: -1, limited: false, stats: {}, needsRender: true, stock: null,
   path: 'op', rapids: false, holder: true, ghost: true, hudTool: -1, hudLine: -1, toolsDirty: false, setup: null, fixtures: true, stepMode: false,
+  lastChainable: null, chainSeed: null, chainCoverage: null,
 };
 
 /* ================= viewer ================= */
@@ -324,8 +325,11 @@ function buildFixtures() {
   fixScene.visible = S.fixtures; invalidate();
 }
 const stockFromSetup = s => ({ xmin: s.xmin, xmax: s.xmax, ymin: s.ymin, ymax: s.ymax, zbot: s.zmin, ztop: s.zmax });
+// The exported setup JSON's wcs shape ({origin_raw, originUnit, x, y, z, originMM}) into the
+// {origin, x, y, z} shape NC.transformPoints expects - originMM is the already-resolved origin.
+const wcsFrame = w => ({ origin: w.originMM, x: w.x, y: w.y, z: w.z });
 // Cross-checks so a wrong placement announces itself instead of silently drawing the vise in the wrong place.
-function checkSetup(P, st, setup) {
+function checkSetup(P, st, setup, chained) {
   const out = [];
   if (!setup) return out;
   const R = Math.max(...P.tools.map(t => t.D / 2)); let near = 0, n = 0;
@@ -363,7 +367,7 @@ function checkSetup(P, st, setup) {
     }
     if (best > 5) out.push(`The nearest workholding part is ${Math.round(best)} mm from the stock box, so it is probably in different coordinates and is not drawn where the stock is.`);
   }
-  if (setup.stockMode != null && setup.stockMode !== 0 && setup.stockMode !== 1) out.push('This setup uses solid or previous-setup stock. Only its bounding box is used here.');
+  if (setup.stockMode != null && setup.stockMode !== 0 && setup.stockMode !== 1 && !(setup.stockMode === 7 && chained)) out.push('This setup uses solid or previous-setup stock. Only its bounding box is used here.');
   if (setup.check && setup.check.status === 'mismatch') out.push('The export script found the part outside the stock box once moved into setup coordinates, so its transform may be wrong.');
   return out;
 }
@@ -491,6 +495,16 @@ async function loadText(text, name, opts = {}) {
       if (same) P.ops.forEach((o, i) => { if (opsList[i].label) o.label = opsList[i].label; if (opsList[i].dim) o.dim = opsList[i].dim; });
       else if (opts.ops) extraWarn.push(`The job file lists ${opsList.length} operations but the program has ${P.ops.length}, so operation names come from the program's own comments. The file may be out of date.`);
     }
+    // Cross-setup stock chaining: this setup's stock comes from whatever the LAST fully-simulated
+    // setup (in this session) left behind, if that setup's own result is still available and this
+    // one says its stock is "from preceding setup". Fusion doesn't expose that shape for us to
+    // fetch directly (see docs/NOTES.md) - S.lastChainable is our own record of it.
+    let chainSeed = null;
+    if (setup && setup.stockMode === 7 && setup.wcs && setup.wcs.originMM && S.lastChainable && S.lastChainable.name !== (setup.setup || name)) {
+      chainSeed = { mesh: S.lastChainable.mesh, fromWcs: S.lastChainable.wcs, toWcs: wcsFrame(setup.wcs), fromName: S.lastChainable.name };
+    }
+    S.chainSeed = chainSeed; S.chainCoverage = null;
+
     S.ready = false; S.playing = false; updatePlay(); S.curOp = -1; S.cur = { i: 0, f: 0 }; S.tau = 0;
     S.text = text; S.csv = csv; S.lib = lib; S.setup = setup; S.opsList = opts.ops || null; S.exported = opts.exported || null; S.docName = opts.document || null;
     S.prog = P; S.name = name; S.tools = P.tools; S.toolsDirty = false;
@@ -499,12 +513,20 @@ async function loadText(text, name, opts = {}) {
     fillStockInputs(); buildToolCards(); buildOps(); buildTicks(); buildPaths();
     if (setup) info.push(`Setup file "${setup.setup || 'setup'}": ${setup.stock ? 'stock box from Fusion' : 'no stock box, using a guess'}, ${(setup.fixtures || []).length} workholding part${(setup.fixtures || []).length === 1 ? '' : 's'}.`);
     if (opts.exported) info.push('Job file exported ' + opts.exported.replace('T', ' ') + (opts.document ? ' from "' + opts.document + '"' : '') + '.');
+    if (setup && setup.stockMode === 7) {
+      if (chainSeed) info.push(`Stock seeded from the previous setup's finished result ("${chainSeed.fromName}").`);
+      else extraWarn.push(`This setup uses "from previous setup" stock, but no other setup's simulated result is available this session - using a flat block guess instead. Load the previous setup first, then this one, to chain them.`);
+    }
     const usedTools = new Set(P.TL);
     const undercutTools = P.tools.filter(t => t.undercut && usedTools.has(t.no));
     if (undercutTools.length) extraWarn.push(`Undercut tool${undercutTools.length === 1 ? '' : 's'} (${undercutTools.map(t => 'T' + t.no).join(', ')}): the shape can't be simulated by this engine, so stock removal is skipped for it - the toolpath still plays, it just doesn't cut.`);
-    const lines = info.concat(P.notes), warnList = P.warnings.concat(extraWarn, checkSetup(P, S.stock, setup));
+    const lines = info.concat(P.notes), warnList = P.warnings.concat(extraWarn, checkSetup(P, S.stock, setup, !!chainSeed));
     $('warns').innerHTML = lines.map(esc).join('<br>') + (warnList.length ? (lines.length ? '<br>' : '') + '<b>Heads up</b><br>' + warnList.map(esc).join('<br>') : '');
     await rebuild(true);
+    if (chainSeed && S.chainCoverage != null && S.chainCoverage < 0.05) {
+      $('warns').innerHTML += (warnList.length || lines.length ? '<br>' : '<b>Heads up</b><br>') +
+        `The chained stock from "${chainSeed.fromName}" barely overlaps this setup's stock box (${Math.round(S.chainCoverage * 100)}% covered) - the two setups' WCS placements may not line up, or this pairing may be wrong.`;
+    }
   } catch (err) { console.error(err); hideBusy(); toast('Could not read that program: ' + err.message); }
 }
 // Accepts any mix of: G-code program, setup-sheet CSV, Fusion .tools / tool-library JSON, job bundle JSON.
@@ -586,6 +608,12 @@ function showPicker(list) {
 async function prepass(token, sims) {
   const P = S.prog, n = P.n;
   for (const sim of sims.values()) sim.reset();
+  // Cross-setup stock chaining: seed plane 0's starting surface from a previous setup's finished
+  // result, right after reset() and before any of THIS setup's own moves are cut.
+  if (S.chainSeed && sims.has(0)) {
+    const tpos = NC.transformPoints(S.chainSeed.mesh.pos, S.chainSeed.fromWcs, S.chainSeed.toWcs);
+    S.chainCoverage = NC.seedHeightSim(sims.get(0), tpos, S.chainSeed.mesh.idx);
+  }
   let bytes = 0; for (const sim of sims.values()) bytes += sim.nx * sim.ny * 6;
   const maxSnaps = clamp(Math.floor(90e6 / Math.max(1, bytes)), 6, 60), every = Math.max(64, Math.ceil(n / maxSnaps));
   const snaps = [], t0 = performance.now(); let last = t0;
@@ -644,6 +672,13 @@ async function rebuild(fresh) {
   const target = S.prog.total / 30;
   const opts = [...$('speedSel').options].map(o => +o.value);
   if (fresh) { S.speed = opts.reduce((a, b) => (Math.abs(Math.log(b / target)) < Math.abs(Math.log(a / target)) ? b : a)); $('speedSel').value = String(S.speed); }
+  // Remember this setup's finished result for a LATER "from preceding setup" load to chain from.
+  // Always overwritten (even to null) so a stale chain never survives loading something unrelated
+  // in between - only the most recently loaded program with real WCS data is ever chainable.
+  const pl0 = S.planes.get(0);
+  S.lastChainable = (S.setup && S.setup.wcs && S.setup.wcs.originMM && pl0)
+    ? { name: S.setup.setup || S.name, wcs: wcsFrame(S.setup.wcs), mesh: NC.meshFromHeightArray(pl0.sim.nx, pl0.sim.ny, pl0.sim.dx, pl0.sim.dy, pl0.sim.x0, pl0.sim.y0, pl0.finalH) }
+    : null;
   hideBusy(); S.ready = true; updateHud(true); updateChips(true);
 }
 

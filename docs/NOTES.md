@@ -153,6 +153,30 @@ a tool change forces a new operation.
   detected inside `advance()`'s per-move loop so it stops at the exact move, not just "sometime this frame." Verified against the real
   O1228 job: stepping through the whole program hits exactly its 3 real cutter-comp activations. Tested in `tests/opBadges.test.js`
   (badges) and `tests/stepMode.test.js` (playback).
+- **Cross-setup stock chaining, done 2026-09-20.** Confirmed first that Fusion doesn't expose the computed remaining-stock shape for
+  "From Preceding Setup" mode (`Setup.stockSolids` is just empty for it, no error - see `FloorSim_ChainedStock_Test.py`), so this is
+  computed on the page: `NC.meshFromHeightArray()` meshes a finished setup's height field (same corner-averaged topology `buildStock()`
+  already uses for rendering), `NC.transformPoints()` moves it from one setup's WCS into another's, `NC.seedHeightSim()` rasterizes it
+  into the new setup's *starting* height field (software-Z-buffer style: per triangle, walk only the grid cells under its own bounding
+  box, keep the highest surface per cell; cells the mesh never reaches stay at the safe default, full stock).
+  `wcsFrame()` in app.js converts the exported JSON's `wcs` shape (`origin_raw`/`originUnit`/`originMM`/`x`/`y`/`z`) into the plain
+  `{origin, x, y, z}` shape `transformPoints` expects - **a real bug was caught here**: the raw `setup.wcs` object was passed straight
+  through once, `transformPoints` destructured a nonexistent `.origin`, threw, and `rebuild()`'s own try/catch silently swallowed it,
+  leaving the page hung waiting for a `S.ready` that would never come. Fixed by routing every WCS value through `wcsFrame()`.
+  `checkSetup()`'s generic "only its bounding box is used here" warning is now suppressed specifically when chaining actually supplied
+  the real shape (`setup.stockMode === 7 && chained`) - it stayed accurate and shown for every other case (solid mode, or mode 7 with
+  no chain available).
+  Workflow: `S.lastChainable` remembers the most recently loaded program's finished mesh + WCS, but *only* when that program had real
+  WCS data - loading anything else in between (a bare NC, a different setup with no `wcs`) clears it, so a later "from preceding setup"
+  load never chains from something stale or unrelated. Loading a `stockMode === 7` setup right after a chainable one seeds it
+  automatically and says so in the notes; with nothing to chain from, it warns and falls back to the flat-block guess as before.
+  **Verified end-to-end with two real setups from the same real job** (OP50 → Op 60, `fixtures/setups/OP50.floorsim.json` +
+  `Op_60.floorsim.json`, a real 180°-about-Y flip): 100% of Op 60's stock box was covered by OP50's transformed result, and the
+  chained stock visibly shows OP50's actual pocket and bosses in the flipped orientation - not a flat block. Exact for this common
+  two-sided, flat-parting-plane case; a part with true interlocking 3D features across the flip would need the full multi-interval-dexel
+  rewrite that's deliberately deferred (see the undercut-tools entry above), not attempted here. Tests: `tests/chainStock.test.js`
+  (engine math: identity transform, round-trip through the real Op_60 flip, mesh/seed correctness on synthetic shapes) and
+  `tests/chainStockPage.test.js` (end-to-end on the real OP50 → Op 60 pairing).
 
 ## 4. File formats
 
@@ -198,7 +222,8 @@ name, `(FTL-EC1F8B)`, tool list `(T57 - 3/8 7FL ROUGHING EM - HLDR=NBT30-SK13C-9
 | API lengths are centimetres | Verified (mesh coordinates) |
 | `Setup.workCoordinateSystem.getAsCoordinateSystem()` origin is **millimetres** | **Verified on 4 real setups.** Under the cm reading all four failed the part-in-stock test; under mm all pass, fixtures come out symmetric with round numbers, and the Op49 part equals its stock exactly |
 | Setup params `stockXLow/XHigh/YLow/YHigh/ZLow/ZHigh` are the stock box in WCS, cm | Verified vs the O1228 toolpath (0.04 mm in XY) |
-| `stockMode` seen: 6 (OP50, Op49, Probe test), 7 (Op 60) | Inferred as "from solid" and "from previous setup". Docs list Fixed box, Relative box, Solid, Previous setup; numeric values not confirmed. The page treats 0 and 1 as boxes and anything else as "bounding box only" |
+| `stockMode` numeric values | **Confirmed 2026-09-20** via `FloorSim_ChainedStock_Test.py` on a second real job (SOL1-901769): mode 6 = Solid (`stockSolids.count` was 1, a real `Occurrence`), mode 7 = From Preceding Setup (`stockSolids.count` was 0 - empty, not an error). A third value, mode 2, was seen on a "GAge" setup (probably Fixed or Relative box) but not identified further. The page still treats 0 and 1 as boxes and anything else as "bounding box only" |
+| `Setup.stockSolids` for "From Preceding Setup" mode (7) | **Confirmed empty, not an error** - `count=0`, no exception, on a real setup ("B side" of SOL1-901769). Autodesk's own docs say this property "throws" outside Solid stock mode; in practice on this real setup it was just an empty collection. **Fusion does not expose the computed remaining-stock shape through this property for chained setups** - there is no shortcut here for cross-setup stock chaining. `Setup.models` for that same setup returned the same finished-part body as every other setup (the design's `Body1`), not anything stock-related. No CAM-level property mentioning "stock", "simulate", or "rest" existed beyond the material library. See "cross-setup stock chaining" in section 9 for what this means for that feature |
 | `Setup.fixtures` lists fixture models; `Setup.models` lists part models | From docs samples; worked in the real run |
 | `BRepBody.meshManager.createMeshCalculator()` gives `nodeCoordinatesAsDouble` and `nodeIndices` | Worked in the real run |
 | STL export of an occurrence ignores its placement | From a forum answer, not tested (we avoid STL export) |
@@ -255,7 +280,7 @@ so the in-page `.tools` unzip is covered by an engine (Node) test only.
 - **Cloud loading by program number:** `?program=O1228` fetches `<base>/O1228.floorsim.json`. Needs CORS and access control; keep the file dialog as a fallback.
 - **Workholding library:** vises and soft jaws stored once in the page, keyed by the post's `fixtureInfo` text, placed by a stored offset from the WCS.
 - **Holder library:** profiles keyed by `holderDescription`, filled once from the tool library, so the post only needs to emit the name.
-- **Chain setups:** simulate OP50, then use its result as the stock for the next setup (only feasible without a flip, or with a full solid model).
+- **Chain setups (cross-setup stock chaining): done** - see section 3.
 - **Cycle time:** reuse the post's FEED_RATIO and tool-change constants.
 - **Part STL** for true deviation colouring (needs the WCS transform, which the export code already solves).
 - **Multi-interval dexel (true undercut support):** replace the one-height-per-column `HeightSim` with a small stack of

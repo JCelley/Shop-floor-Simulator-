@@ -75,6 +75,7 @@ st = job['stock']; ok(abs(st['xmin'] + 26.988) < 0.01 and abs(st['zmax'] - 118.7
 fx = {f['name']: f['positions'] for f in job['fixtures']}
 jl = fx['Vise / Jaw L']; ok(abs(min(jl[0::3]) + 63.5) < 0.02 and abs(max(jl[2::3]) - 90.09) < 0.02, 'fixture lands where expected in WCS (x %.2f..%.2f, z top %.2f)' % (min(jl[0::3]), max(jl[0::3]), max(jl[2::3])))
 ok(job['check']['status'] == 'ok' and job['wcs']['originUnit'] == 'mm', 'placement self-test ok, origin read as mm')
+omm = job['wcs']['originMM']; ok(all(abs(a - b) < 0.01 for a, b in zip(omm, O_MM)), 'resolved originMM matches the known WCS origin: %s' % omm)
 ok(job['exported'][:4] == '2026' or len(job['exported']) == 19, 'export time recorded: ' + job['exported'])
 os.makedirs(os.path.join(ROOT, 'tests', '.tmp'), exist_ok=True); json.dump(job, open(os.path.join(ROOT, 'tests', '.tmp', 'O1228.floorsim.json'), 'w'), separators=(',', ':'))
 # posting off: existing file is used, and the log says so

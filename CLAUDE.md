@@ -38,11 +38,11 @@ Read `docs/NOTES.md` for evidence, file formats, and the decision log. This file
 |---|---|
 | Parser (Brother dialect), stock removal engine, viewer, HUD, playback, probe | Built, tested headless. John viewed the published prototype and said it looks great. |
 | Real job O1228 (19,126 moves, 16 ops, 7 tools) | Loads, simulates in ~0.9 s here, placement checks pass |
-| `fusion/FloorSimExport.py` (per-setup stock + workholding export) | v1 ran in real Fusion (produced 4 files; exposed an origin-unit bug). v2 fix is tested on fake data and by re-placing v1 output, **not re-run in Fusion** |
-| `fusion/FloorSimJobExport/` add-in (button + one job file) | Tested only against a fake Fusion. **Never run in Fusion. Parked**: John prefers the post-based route |
+| `fusion/FloorSimExport.py` (per-setup stock + workholding export) | v1 ran in real Fusion (produced 4 files; exposed an origin-unit bug). v2 fix is tested on fake data and by re-placing v1 output. The new `wcs.originMM` field (for stock chaining) is likewise **not re-run in Fusion** — untested until a fresh export is generated and loaded |
+| `fusion/FloorSimJobExport/` add-in (button + one job file) | Installed and run for real (button now lives in the Milling tab's Actions panel). Not run since the `originMM` addition |
 | Cascading post writes the job JSON | `CSV_Cascade_Post_v2_6_7.cps` writes `<base>.floorsim.json` (stock box + setup name only, no G-code or tool list — see NOTES). **Run for real against O1228**: stock box matched the value already verified via the Python export route to the mm. The proven `CSV_Cascade_Post_v2_6_6.cps` is untouched |
 | Chromebook performance | **Unmeasured.** All timings are desktop Node |
-| Real-browser rendering tests | **None automated.** Tests use jsdom with a stubbed renderer |
+| Real-browser rendering tests | `tests/browser.test.js` (Playwright/Chromium) renders the page for real and checks pixels, wired into `npm test` |
 
 ## Layout
 
@@ -97,8 +97,11 @@ npm test           # all suites; needs Node 18+ and Python 3 for the Fusion-side
   against a real job (see NOTES.md) — but the probe (click-to-see-what-cut-this) only works on the base plane, and a
   program with no real stock box supplied can render with the base block's auto-guessed size hiding the tilted meshes
   inside it (known, left alone for now — see NOTES.md).
-  "Stock from previous setup" cannot be chained across a flip (only the bounding box is used).
-- Cutter compensation G41/G42 is **not** applied: John confirmed his contours are tool-centre paths using wear comp.
+  "Stock from previous setup" **is chained** when the earlier setup's own result is still available this session (see NOTES.md) —
+  exact for a flat parting plane with no interlocking features visible from both sides; a part needing that would need the same
+  deferred multi-interval-dexel rewrite as undercut tools.
+- Cutter compensation G41/G42 is **not** applied (John confirmed his contours are tool-centre paths using wear comp), but the parser
+  does track when it's active and its D register, shown as a badge on the Operations list (see NOTES.md).
 - Peck cycles (G73/G83) are simulated as one plunge. Rapids never cut. No holder/fixture collision.
 - Cycle-time estimate is rough (8.2 min vs the setup sheet's 11.4 for O1228). The post uses FEED_RATIO 0.85 and a 10 s tool
   change; copy those if the estimate matters.

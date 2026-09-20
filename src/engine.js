@@ -700,6 +700,101 @@ const NC = (() => {
     if (sim) cutMove(sim, P, simTools, i, f0, f1);
   }
 
+  /* ---------- cross-setup stock chaining ----------
+     A later setup ("from preceding setup" stock mode) starts from what an earlier setup's
+     program actually left behind, not a flat block. Fusion does not expose this shape for that
+     stock mode (confirmed empirically - see docs/NOTES.md), so it is computed here: mesh the
+     earlier setup's finished height field, move that mesh from its WCS into the later setup's
+     WCS, then rasterize it into the later setup's own starting height field. Exact for a flat
+     parting plane with no interlocking 3D features visible from both sides (the common two-sided
+     case); the same accepted boundary as every other height-field limit in this engine. */
+
+  // Mesh (corner-averaged, same topology as the page's own stock rendering) of one height array.
+  // Takes the grid geometry and an explicit height array (not a live sim) so the FINAL result of
+  // a finished program can be meshed, independent of whatever the sim's current live state is.
+  function meshFromHeightArray(nx, ny, dx, dy, x0, y0, h) {
+    const vx = nx + 1, vy = ny + 1, nv = vx * vy;
+    const pos = new Float32Array(nv * 3);
+    for (let j = 0; j < vy; j++) {
+      const ja = j > 0 ? j - 1 : 0, jb = j < ny ? j : ny - 1;
+      for (let i = 0; i < vx; i++) {
+        const ia = i > 0 ? i - 1 : 0, ib = i < nx ? i : nx - 1;
+        const z = 0.25 * (h[ja * nx + ia] + h[ja * nx + ib] + h[jb * nx + ia] + h[jb * nx + ib]);
+        const k = (j * vx + i) * 3;
+        pos[k] = x0 + i * dx; pos[k + 1] = y0 + j * dy; pos[k + 2] = z;
+      }
+    }
+    const idx = new Uint32Array(nx * ny * 6); let q = 0;
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const a = j * vx + i, b = a + 1, c = a + vx, d = c + 1;
+      idx[q++] = a; idx[q++] = b; idx[q++] = d; idx[q++] = a; idx[q++] = d; idx[q++] = c;
+    }
+    return { pos, idx };
+  }
+
+  // Rigid transform of a flat [x,y,z,...] position array from one setup's WCS into another's.
+  // wcs shape matches the exported job/setup JSON: {origin:[x,y,z] mm, x:[..], y:[..], z:[..]}
+  // (unit axis vectors) - pass {origin: wcs.originMM, x: wcs.x, y: wcs.y, z: wcs.z}.
+  function transformPoints(pos, fromWcs, toWcs) {
+    const [ox, oy, oz] = fromWcs.origin, [bx, by, bz] = toWcs.origin;
+    const fx_ = fromWcs.x, fy_ = fromWcs.y, fz_ = fromWcs.z, tx_ = toWcs.x, ty_ = toWcs.y, tz_ = toWcs.z;
+    const out = new Float32Array(pos.length);
+    for (let i = 0; i < pos.length; i += 3) {
+      const px = pos[i], py = pos[i + 1], pz = pos[i + 2];
+      const wx = ox + fx_[0] * px + fy_[0] * py + fz_[0] * pz;
+      const wy = oy + fx_[1] * px + fy_[1] * py + fz_[1] * pz;
+      const wz = oz + fx_[2] * px + fy_[2] * py + fz_[2] * pz;
+      const dx = wx - bx, dy = wy - by, dz = wz - bz;
+      out[i] = tx_[0] * dx + tx_[1] * dy + tx_[2] * dz;
+      out[i + 1] = ty_[0] * dx + ty_[1] * dy + ty_[2] * dz;
+      out[i + 2] = tz_[0] * dx + tz_[1] * dy + tz_[2] * dz;
+    }
+    return out;
+  }
+
+  // Rasterize a triangle mesh (already in sim's local frame) into sim.h as its STARTING surface -
+  // call right after sim.reset(), before any of this setup's own moves are cut. Software
+  // Z-buffer style: per triangle, walk only the grid cells under its own bounding box (cheap for
+  // a rigid transform between similarly-scaled setups), take the highest surface per cell where
+  // more than one triangle covers it. Cells the mesh never reaches are left at the default
+  // (zTop, i.e. "no prior data here, assume solid") - the natural, safe fallback.
+  // Returns the fraction of the box actually covered, so a caller can warn if that's suspiciously
+  // low (a sign the WCS transform put the two setups in the wrong place relative to each other).
+  function seedHeightSim(sim, pos, idx) {
+    const nx = sim.nx, ny = sim.ny, dx = sim.dx, dy = sim.dy, x0 = sim.x0, y0 = sim.y0;
+    const touched = new Uint8Array(nx * ny);
+    const nt = idx.length / 3;
+    for (let t = 0; t < nt; t++) {
+      const a = idx[t * 3] * 3, b = idx[t * 3 + 1] * 3, c = idx[t * 3 + 2] * 3;
+      const x0v = pos[a], y0v = pos[a + 1], z0v = pos[a + 2];
+      const x1v = pos[b], y1v = pos[b + 1], z1v = pos[b + 2];
+      const x2v = pos[c], y2v = pos[c + 1], z2v = pos[c + 2];
+      let i0 = Math.floor((Math.min(x0v, x1v, x2v) - x0) / dx), i1 = Math.floor((Math.max(x0v, x1v, x2v) - x0) / dx);
+      let j0 = Math.floor((Math.min(y0v, y1v, y2v) - y0) / dy), j1 = Math.floor((Math.max(y0v, y1v, y2v) - y0) / dy);
+      if (i0 < 0) i0 = 0; if (j0 < 0) j0 = 0; if (i1 > nx - 1) i1 = nx - 1; if (j1 > ny - 1) j1 = ny - 1;
+      if (i0 > i1 || j0 > j1) continue;
+      const denom = (y1v - y2v) * (x0v - x2v) + (x2v - x1v) * (y0v - y2v);
+      if (Math.abs(denom) < 1e-9) continue;
+      for (let j = j0; j <= j1; j++) {
+        const py = y0 + (j + 0.5) * dy;
+        for (let i = i0; i <= i1; i++) {
+          const px = x0 + (i + 0.5) * dx;
+          const wa = ((y1v - y2v) * (px - x2v) + (x2v - x1v) * (py - y2v)) / denom;
+          const wb = ((y2v - y0v) * (px - x2v) + (x0v - x2v) * (py - y2v)) / denom;
+          const wc = 1 - wa - wb;
+          if (wa < -1e-6 || wb < -1e-6 || wc < -1e-6) continue;
+          const z = wa * z0v + wb * z1v + wc * z2v;
+          const k = j * nx + i;
+          if (!touched[k] || z > sim.h[k]) { sim.h[k] = z; touched[k] = 1; }
+        }
+      }
+    }
+    let n = 0;
+    for (let k = 0; k < sim.h.length; k++) if (touched[k]) { n++; sim.h[k] = Math.min(sim.zTop, Math.max(sim.zBot, sim.h[k])); }
+    sim.markAll();
+    return n / touched.length;
+  }
+
   /* ---------- sample programs ---------- */
   const fx = n => { const s = String(+n.toFixed(3)); return s.includes('.') ? s : s + '.'; };
 
@@ -777,6 +872,8 @@ const NC = (() => {
   }
 
   return { parseProgram, completeTool, simTool, prof, holderSegments, applyLibrary, typeFromText, parseSetupCsv, applyCsvTools, unzipText, guessFromName,
-           HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti, demoProgram, stressProgram, RAPID_MMPM };
+           HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti,
+           meshFromHeightArray, transformPoints, seedHeightSim,
+           demoProgram, stressProgram, RAPID_MMPM };
 })();
 if (typeof module !== 'undefined') module.exports = NC;

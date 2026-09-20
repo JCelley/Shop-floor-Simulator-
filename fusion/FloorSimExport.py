@@ -202,7 +202,8 @@ def export_setup(setup, log):
     return {
         'format': 'floorsim-setup', 'version': 1, 'units': 'mm', 'setup': setup.name,
         'stockMode': mode, 'stock': stock, 'fixtures': fixtures, 'check': check,
-        'wcs': {'origin_raw': raw_origin, 'originUnit': 'mm' if k < 1 else 'cm', 'x': xa, 'y': ya, 'z': za},
+        'wcs': {'origin_raw': raw_origin, 'originUnit': 'mm' if k < 1 else 'cm', 'x': xa, 'y': ya, 'z': za,
+                'originMM': [round(v * CM_TO_MM, 3) for v in origin]},  # resolved, ready to use - same frame as fixtures/positions
     }
 
 

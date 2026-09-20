@@ -14,6 +14,8 @@ const steps = [
   ['G-code editing (edit + re-run, never saved)', 'node', ['tests/codeEdit.test.js']],
   ['operations list badges (cutter comp + Dim#)', 'node', ['tests/opBadges.test.js']],
   ['step mode (pause at op/comp boundaries)', 'node', ['tests/stepMode.test.js']],
+  ['cross-setup stock chaining (engine math)', 'node', ['tests/chainStock.test.js']],
+  ['cross-setup stock chaining (real jobs, end-to-end)', 'node', ['tests/chainStockPage.test.js']],
   ...(py ? [['fusion export script (math)', py, ['tests/script.test.py']], ['fusion add-in (fake Fusion, real job data)', py, ['tests/addin.test.py']]] : []),
   ['page UI (jsdom, stubbed WebGL)', 'node', ['tests/ui.test.js']],
   ['real cascading-post JSON + real NC (jsdom)', 'node', ['tests/postJson.test.js']],
