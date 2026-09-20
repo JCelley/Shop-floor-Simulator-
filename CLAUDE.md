@@ -83,6 +83,9 @@ npm test           # all suites; needs Node 18+ and Python 3 for the Fusion-side
   cannot keep up. Only changed grid rows are re-uploaded to the GPU.
 - **Inputs the page accepts:** NC text, setup-sheet CSV, Fusion `.tools` (zip) or tool-library JSON, setup JSON
   (`floorsim-setup`), and the one-file job JSON (`floorsim-job`). Details in NOTES.
+- **"Open job folder"** groups a whole folder's files by program number (strip `.NC`/`.csv`/`.floorsim.json`/`.tools`)
+  and either loads the one match instantly or shows a small newest-first picker. "Open job file" (manual multi-select)
+  still exists for edge cases. Only programs with an `.NC` file are offered. Details in NOTES.
 
 ## Known limits (do not "fix" silently, they are design boundaries)
 

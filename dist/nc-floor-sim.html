@@ -102,6 +102,19 @@ button, select, input { font: inherit; color: inherit; }
 .bar-track { width: min(320px, 70vw); height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 0 auto; }
 .bar-fill { height: 100%; width: 0; background: var(--accent); }
 
+.picker-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-content: center; background: color-mix(in srgb, #000 45%, transparent); }
+.picker { width: min(420px, 92vw); max-height: 80vh; display: flex; flex-direction: column; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 16px; box-shadow: var(--shadow); }
+.picker h2 { margin: 0 0 10px; font-size: 18px; }
+.picker input[type="text"] { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: inherit; margin-bottom: 10px; }
+.picker ol { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 6px; }
+.picker li button { width: 100%; text-align: left; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: inherit; font: inherit; cursor: pointer; display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.picker li:last-child button { border-bottom: 0; }
+.picker li button:hover, .picker li button:focus-visible { background: var(--accent); color: var(--accent-ink); }
+.picker li .files { font-size: 12px; color: var(--muted); }
+.picker li button:hover .files, .picker li button:focus-visible .files { color: inherit; opacity: .8; }
+.picker .row { margin-top: 12px; display: flex; justify-content: flex-end; }
+.picker .empty { padding: 14px; color: var(--muted); font-size: 14px; }
+
 /* ---------- side panel ---------- */
 .side section, .side details { border-bottom: 1px solid var(--line); }
 .side h2 { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: var(--muted); }
@@ -176,7 +189,9 @@ label.f select { font-family: var(--font); }
   <header class="bar">
     <div class="title"><strong>Floor Sim</strong><span class="tag">prototype</span><span class="fname" id="fname"></span></div>
     <div class="bar-actions">
-      <label class="btn primary" for="fileProg" title="Pick the job file (.floorsim.json) made by the Fusion add-in">Open job file</label>
+      <label class="btn primary" for="fileFolder" title="Pick the shared folder the shop's NC/CSV/job files sync to">Open job folder</label>
+      <input id="fileFolder" type="file" webkitdirectory directory multiple hidden>
+      <label class="btn" for="fileProg" title="Pick the job file (.floorsim.json) made by the Fusion add-in, or select files by hand">Open job file</label>
       <input id="fileProg" type="file" multiple hidden>
       <label class="btn" for="fileLib">Tool library</label>
       <input id="fileLib" type="file" multiple hidden>
@@ -334,6 +349,14 @@ label.f select { font-family: var(--font); }
   </footer>
 </div>
 <div id="toast" role="status" aria-live="polite" hidden></div>
+<div class="picker-backdrop" id="pickerBack" hidden>
+  <div class="picker" role="dialog" aria-modal="true" aria-label="Choose a program">
+    <h2>Choose a program</h2>
+    <input id="pickerSearch" type="text" placeholder="Search by program number..." aria-label="Search programs">
+    <ol id="pickerList"></ol>
+    <div class="row"><button class="btn" id="pickerCancel" type="button">Cancel</button></div>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -1637,6 +1660,56 @@ async function handleFiles(files) {
   if (b.csv || b.lib || b.setup) toast('Open the program (.NC) first, or select it together with the CSV, .tools and setup files.');
 }
 
+/* ---------- "Open job folder": groups every file in a shared folder by program number ----------
+   The shared folder has every job's files mixed together (not one folder per job - see NOTES.md),
+   so this groups files by their name with a known extension stripped (O1224.NC, O1224.csv,
+   O1224.floorsim.json all become program "O1224"), then either loads the one match instantly or
+   shows a small picker sorted newest-first when the folder holds more than one program. */
+function classifyFolderFile(name) {
+  if (/\.floorsim\.json$/i.test(name)) return { kind: 'job/setup', program: name.replace(/\.floorsim\.json$/i, '') };
+  if (/\.nc$/i.test(name)) return { kind: 'NC', program: name.replace(/\.nc$/i, '') };
+  if (/\.csv$/i.test(name)) return { kind: 'CSV', program: name.replace(/\.csv$/i, '') };
+  if (/\.tools$/i.test(name)) return { kind: 'tools', program: name.replace(/\.tools$/i, '') };
+  if (/\.json$/i.test(name)) return { kind: 'JSON', program: name.replace(/\.json$/i, '') };
+  return null;
+}
+function groupFolderFiles(fileList) {
+  const groups = new Map();
+  for (const f of fileList) {
+    const c = classifyFolderFile(f.name);
+    if (!c || !c.program) continue;
+    let g = groups.get(c.program);
+    if (!g) { g = { program: c.program, files: [], kinds: new Set(), newest: 0 }; groups.set(c.program, g); }
+    g.files.push(f); g.kinds.add(c.kind); g.newest = Math.max(g.newest, f.lastModified || 0);
+  }
+  return [...groups.values()].filter(g => g.kinds.has('NC')).sort((a, b) => b.newest - a.newest);
+}
+function openFolder(fileList) {
+  const list = groupFolderFiles(fileList);
+  if (!list.length) { toast('No .NC files found in that folder.'); return; }
+  if (list.length === 1) { handleFiles(list[0].files); return; }
+  showPicker(list);
+}
+function hidePicker() { $('pickerBack').hidden = true; }
+function showPicker(list) {
+  const back = $('pickerBack'), input = $('pickerSearch'), ul = $('pickerList');
+  input.value = '';
+  const render = () => {
+    const q = input.value.trim().toLowerCase();
+    const filtered = q ? list.filter(g => g.program.toLowerCase().includes(q)) : list;
+    ul.innerHTML = filtered.length
+      ? filtered.map(g => `<li><button type="button" data-program="${esc(g.program)}"><span>${esc(g.program)}</span><span class="files">${[...g.kinds].sort().join(', ')}</span></button></li>`).join('')
+      : '<li class="empty">No matching program.</li>';
+    ul.querySelectorAll('button[data-program]').forEach(btn => {
+      btn.onclick = () => { const g = list.find(x => x.program === btn.dataset.program); hidePicker(); if (g) handleFiles(g.files); };
+    });
+  };
+  render();
+  input.oninput = render;
+  back.hidden = false;
+  input.focus();
+}
+
 // sims: Map<planeId, HeightSim>, one per plane actually used (buildPlaneSims). Snapshots now
 // hold every plane's state together (state: Map<planeId, {h,op}>) so scrubbing restores all
 // planes in lockstep off the one shared program timeline.
@@ -1856,6 +1929,10 @@ function updateChips(force) {
 
 /* ================= wiring ================= */
 $('fileProg').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; handleFiles(fl); };
+$('fileFolder').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; openFolder(fl); };
+$('pickerCancel').onclick = hidePicker;
+$('pickerBack').addEventListener('click', e => { if (e.target === $('pickerBack')) hidePicker(); });
+document.addEventListener('keydown', e => { if (e.code === 'Escape' && !$('pickerBack').hidden) hidePicker(); });
 $('fileLib').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; handleFiles(fl); };
 $('unitSel').onchange = () => { if (S.text) loadText(S.text, S.name, { csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName }); };
 $('demoSel').onchange = e => {
@@ -1928,7 +2005,7 @@ function frame(now) {
 }
 resize(); setView('fit');
 requestAnimationFrame(frame);
-window.__floorsim = { S, orb, goTo, advance, loadText, handleFiles, fixScene, rebuild, STOCK, toolGroups, renderer, pickAt, camera, scene };   // handy for debugging in the console
+window.__floorsim = { S, orb, goTo, advance, loadText, handleFiles, openFolder, groupFolderFiles, fixScene, rebuild, STOCK, toolGroups, renderer, pickAt, camera, scene };   // handy for debugging in the console
 loadText(NC.demoProgram(), 'Demo program', { stock: { xmin: -50, xmax: 50, ymin: -35, ymax: 35, zbot: -20, ztop: 0 } });
 })();
 

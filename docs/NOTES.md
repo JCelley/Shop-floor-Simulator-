@@ -118,6 +118,15 @@ a tool change forces a new operation.
 - `checkSetup()` cross-checks a setup or job file against the program: fraction of cutting moves inside the stock box, how deep any workholding
   sinks into the stock (over 5 mm is flagged; pins a few mm deep are normal), how far the nearest workholding is from the stock (over 5 mm
   flagged), and the export script's own self-test result.
+- **"Open job folder"** (`openFolder`/`groupFolderFiles`/`showPicker` in app.js): a `webkitdirectory` file input reads every file in the
+  shared folder (which has every job mixed together - other software also depends on that flat layout, so it can't be reorganized). Files
+  are grouped by name with a known extension stripped (`.NC`, `.csv`, `.floorsim.json`, `.tools`, bare `.json`), and only groups that include
+  an `.NC` file are offered (a CSV/JSON with no matching NC is a dead end for `loadText`, so it's silently excluded). One match loads instantly
+  via the existing `handleFiles()`; more than one shows a small picker (`#pickerBack`), sorted newest-first by `lastModified`, with
+  type-to-filter search. Picking an entry just calls `handleFiles()` with that group's files - same code path as the manual multi-select
+  "Open job file" button, which still exists for edge cases. Tested in `tests/folderPicker.test.js` (real fixture filenames for the
+  grouping logic, synthetic small programs for the load-through-the-picker checks - loading the real O1224/O1228 fixtures isn't needed
+  since grouping only reads `.name`/`.lastModified`, never file content).
 
 ## 4. File formats
 

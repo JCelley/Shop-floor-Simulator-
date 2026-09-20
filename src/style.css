@@ -92,6 +92,19 @@ button, select, input { font: inherit; color: inherit; }
 .bar-track { width: min(320px, 70vw); height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 0 auto; }
 .bar-fill { height: 100%; width: 0; background: var(--accent); }
 
+.picker-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-content: center; background: color-mix(in srgb, #000 45%, transparent); }
+.picker { width: min(420px, 92vw); max-height: 80vh; display: flex; flex-direction: column; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 16px; box-shadow: var(--shadow); }
+.picker h2 { margin: 0 0 10px; font-size: 18px; }
+.picker input[type="text"] { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: inherit; margin-bottom: 10px; }
+.picker ol { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 6px; }
+.picker li button { width: 100%; text-align: left; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: inherit; font: inherit; cursor: pointer; display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.picker li:last-child button { border-bottom: 0; }
+.picker li button:hover, .picker li button:focus-visible { background: var(--accent); color: var(--accent-ink); }
+.picker li .files { font-size: 12px; color: var(--muted); }
+.picker li button:hover .files, .picker li button:focus-visible .files { color: inherit; opacity: .8; }
+.picker .row { margin-top: 12px; display: flex; justify-content: flex-end; }
+.picker .empty { padding: 14px; color: var(--muted); font-size: 14px; }
+
 /* ---------- side panel ---------- */
 .side section, .side details { border-bottom: 1px solid var(--line); }
 .side h2 { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: var(--muted); }

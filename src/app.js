@@ -529,6 +529,56 @@ async function handleFiles(files) {
   if (b.csv || b.lib || b.setup) toast('Open the program (.NC) first, or select it together with the CSV, .tools and setup files.');
 }
 
+/* ---------- "Open job folder": groups every file in a shared folder by program number ----------
+   The shared folder has every job's files mixed together (not one folder per job - see NOTES.md),
+   so this groups files by their name with a known extension stripped (O1224.NC, O1224.csv,
+   O1224.floorsim.json all become program "O1224"), then either loads the one match instantly or
+   shows a small picker sorted newest-first when the folder holds more than one program. */
+function classifyFolderFile(name) {
+  if (/\.floorsim\.json$/i.test(name)) return { kind: 'job/setup', program: name.replace(/\.floorsim\.json$/i, '') };
+  if (/\.nc$/i.test(name)) return { kind: 'NC', program: name.replace(/\.nc$/i, '') };
+  if (/\.csv$/i.test(name)) return { kind: 'CSV', program: name.replace(/\.csv$/i, '') };
+  if (/\.tools$/i.test(name)) return { kind: 'tools', program: name.replace(/\.tools$/i, '') };
+  if (/\.json$/i.test(name)) return { kind: 'JSON', program: name.replace(/\.json$/i, '') };
+  return null;
+}
+function groupFolderFiles(fileList) {
+  const groups = new Map();
+  for (const f of fileList) {
+    const c = classifyFolderFile(f.name);
+    if (!c || !c.program) continue;
+    let g = groups.get(c.program);
+    if (!g) { g = { program: c.program, files: [], kinds: new Set(), newest: 0 }; groups.set(c.program, g); }
+    g.files.push(f); g.kinds.add(c.kind); g.newest = Math.max(g.newest, f.lastModified || 0);
+  }
+  return [...groups.values()].filter(g => g.kinds.has('NC')).sort((a, b) => b.newest - a.newest);
+}
+function openFolder(fileList) {
+  const list = groupFolderFiles(fileList);
+  if (!list.length) { toast('No .NC files found in that folder.'); return; }
+  if (list.length === 1) { handleFiles(list[0].files); return; }
+  showPicker(list);
+}
+function hidePicker() { $('pickerBack').hidden = true; }
+function showPicker(list) {
+  const back = $('pickerBack'), input = $('pickerSearch'), ul = $('pickerList');
+  input.value = '';
+  const render = () => {
+    const q = input.value.trim().toLowerCase();
+    const filtered = q ? list.filter(g => g.program.toLowerCase().includes(q)) : list;
+    ul.innerHTML = filtered.length
+      ? filtered.map(g => `<li><button type="button" data-program="${esc(g.program)}"><span>${esc(g.program)}</span><span class="files">${[...g.kinds].sort().join(', ')}</span></button></li>`).join('')
+      : '<li class="empty">No matching program.</li>';
+    ul.querySelectorAll('button[data-program]').forEach(btn => {
+      btn.onclick = () => { const g = list.find(x => x.program === btn.dataset.program); hidePicker(); if (g) handleFiles(g.files); };
+    });
+  };
+  render();
+  input.oninput = render;
+  back.hidden = false;
+  input.focus();
+}
+
 // sims: Map<planeId, HeightSim>, one per plane actually used (buildPlaneSims). Snapshots now
 // hold every plane's state together (state: Map<planeId, {h,op}>) so scrubbing restores all
 // planes in lockstep off the one shared program timeline.
@@ -748,6 +798,10 @@ function updateChips(force) {
 
 /* ================= wiring ================= */
 $('fileProg').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; handleFiles(fl); };
+$('fileFolder').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; openFolder(fl); };
+$('pickerCancel').onclick = hidePicker;
+$('pickerBack').addEventListener('click', e => { if (e.target === $('pickerBack')) hidePicker(); });
+document.addEventListener('keydown', e => { if (e.code === 'Escape' && !$('pickerBack').hidden) hidePicker(); });
 $('fileLib').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; handleFiles(fl); };
 $('unitSel').onchange = () => { if (S.text) loadText(S.text, S.name, { csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName }); };
 $('demoSel').onchange = e => {
@@ -820,6 +874,6 @@ function frame(now) {
 }
 resize(); setView('fit');
 requestAnimationFrame(frame);
-window.__floorsim = { S, orb, goTo, advance, loadText, handleFiles, fixScene, rebuild, STOCK, toolGroups, renderer, pickAt, camera, scene };   // handy for debugging in the console
+window.__floorsim = { S, orb, goTo, advance, loadText, handleFiles, openFolder, groupFolderFiles, fixScene, rebuild, STOCK, toolGroups, renderer, pickAt, camera, scene };   // handy for debugging in the console
 loadText(NC.demoProgram(), 'Demo program', { stock: { xmin: -50, xmax: 50, ymin: -35, ymax: 35, zbot: -20, ztop: 0 } });
 })();

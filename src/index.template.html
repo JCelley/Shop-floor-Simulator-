@@ -16,7 +16,9 @@
   <header class="bar">
     <div class="title"><strong>Floor Sim</strong><span class="tag">prototype</span><span class="fname" id="fname"></span></div>
     <div class="bar-actions">
-      <label class="btn primary" for="fileProg" title="Pick the job file (.floorsim.json) made by the Fusion add-in">Open job file</label>
+      <label class="btn primary" for="fileFolder" title="Pick the shared folder the shop's NC/CSV/job files sync to">Open job folder</label>
+      <input id="fileFolder" type="file" webkitdirectory directory multiple hidden>
+      <label class="btn" for="fileProg" title="Pick the job file (.floorsim.json) made by the Fusion add-in, or select files by hand">Open job file</label>
       <input id="fileProg" type="file" multiple hidden>
       <label class="btn" for="fileLib">Tool library</label>
       <input id="fileLib" type="file" multiple hidden>
@@ -174,6 +176,14 @@
   </footer>
 </div>
 <div id="toast" role="status" aria-live="polite" hidden></div>
+<div class="picker-backdrop" id="pickerBack" hidden>
+  <div class="picker" role="dialog" aria-modal="true" aria-label="Choose a program">
+    <h2>Choose a program</h2>
+    <input id="pickerSearch" type="text" placeholder="Search by program number..." aria-label="Search programs">
+    <ol id="pickerList"></ol>
+    <div class="row"><button class="btn" id="pickerCancel" type="button">Cancel</button></div>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
