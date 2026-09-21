@@ -688,9 +688,10 @@ const NC = (() => {
   // real stock box (box0, from Fusion or the page's guess, same as always); every tilted plane
   // gets a box fitted to its own move extents, padded by `pad` mm (default a generous amount
   // since we have no real stock shape to go on for a tilted face).
-  function buildPlaneSims(P, box0, target, pad) {
+  function buildPlaneSims(P, box0, target, pad, onlyIds) {
     if (pad == null) pad = 5;
-    const used = new Set(P.PL);
+    let used = new Set(P.PL);
+    if (onlyIds) used = new Set([...used].filter(id => onlyIds.has(id)));
     const sims = new Map();
     for (const id of used) {
       const box = id === 0 ? box0 : boxFromMoves(P, id, pad);
@@ -705,6 +706,227 @@ const NC = (() => {
   function cutMoveMulti(sims, P, simTools, i, f0, f1) {
     const sim = sims.get(P.PL[i]);
     if (sim) cutMove(sim, P, simTools, i, f0, f1);
+  }
+
+  /* ---------- tri-dexel: one shared-world-frame stock model for real 3+2 jobs ----------
+     buildPlaneSims/cutMoveMulti above give each tilted plane its own disconnected local frame -
+     correct, but means the workholding fixture (drawn once, in the base/WCS frame) can never line
+     up with a tilted plane's stock without per-plane rotation bookkeeping that doesn't exist. This
+     section is the fix: express every ALIGNED plane's moves in one shared world frame and cut them
+     into a small set of world-axis-aligned HeightSims, so a single mesh (and the existing,
+     untouched fixture code) cover every aligned plane at once. See docs/plan for the design.
+
+     Grids are keyed by SIGNED axis direction ('Z+','Z-','Y+','Y-','X+','X-'), not just the 3
+     unsigned axes: a real job (O1224) has two planes sharing the Y axis with opposite tool
+     directions (id1 axis -Y, id2/5 axis +Y), and a single unsigned "Y grid" can't represent both,
+     since HeightSim's h/zTop/zBot convention assumes cutting always proceeds from one fixed side.
+
+     A plane only qualifies if its real tool axis (third column of its rotation matrix) lands
+     within tolDeg of a world axis - see classifyPlanes. Planes that don't (a genuinely oblique
+     tilt, e.g. O1224's real I80 J90 K0 plane) are left for the caller to render via the ordinary
+     buildPlaneSims/cutMoveMulti path instead (buildPlaneSims' new onlyIds parameter, above, exists
+     for exactly this: build sims for only the oblique subset). General oblique-axis tri-dexel
+     cutting is deliberately out of scope here - see the design plan's "explicitly out of scope". */
+
+  // A plane's real tool axis, in world space: the third column of its rotation matrix (that
+  // column is where the plane's own local +Z - the tool axis under G53.1/TCPC - ends up pointing).
+  function planeAxisWorld(matrix) { return [matrix[0][2], matrix[1][2], matrix[2][2]]; }
+
+  // Classify every plane as aligned (its tool axis is within tolDeg of a world X/Y/Z axis, in
+  // which case it can join tri-dexel) or oblique (falls back to buildPlaneSims/cutMoveMulti).
+  // signOf gives each aligned plane's signed axis key, e.g. 'Z+' (plane 0, the base frame, is
+  // always aligned and 'Z+' since its matrix is the identity). tolDeg is deliberately tiny - just
+  // enough to absorb floating-point rounding on an exact 90 degree multiple, nowhere near a real
+  // oblique tilt like 80 degrees.
+  function classifyPlanes(planes, tolDeg) {
+    if (tolDeg == null) tolDeg = 0.01;
+    const alignedIds = new Set(), obliqueIds = new Set(), signOf = new Map();
+    for (const p of planes) {
+      const ax = planeAxisWorld(p.matrix);
+      let maxAbs = 0, idx = 2;
+      for (let k = 0; k < 3; k++) { const a = Math.abs(ax[k]); if (a > maxAbs) { maxAbs = a; idx = k; } }
+      const angleDeg = Math.acos(Math.min(1, maxAbs)) * 180 / Math.PI;
+      const sign = ax[idx] < 0 ? -1 : 1;
+      if (angleDeg <= tolDeg) { alignedIds.add(p.id); signOf.set(p.id, `${'XYZ'[idx]}${sign > 0 ? '+' : '-'}`); }
+      else obliqueIds.add(p.id);
+    }
+    return { alignedIds, obliqueIds, signOf };
+  }
+
+  // Express every move's endpoint in one shared world frame via its own plane's origin/matrix.
+  // Deliberately returns no PL field: cutMove's plane-boundary guard (see cutMove above) exists
+  // only because buildPlaneSims' per-plane local sims have no valid cross-plane "from" point -
+  // here every move sits in one continuous frame, so every move's "from" point is a genuinely
+  // valid world position and that guard must not fire.
+  function worldizeMoves(P) {
+    const planeMap = new Map(P.planes.map(p => [p.id, p]));
+    const n = P.n;
+    const Xw = new Float64Array(n), Yw = new Float64Array(n), Zw = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const pl = planeMap.get(P.PL[i]), M = pl.matrix, o = pl.origin;
+      const x = P.X[i], y = P.Y[i], z = P.Z[i];
+      Xw[i] = o[0] + M[0][0] * x + M[0][1] * y + M[0][2] * z;
+      Yw[i] = o[1] + M[1][0] * x + M[1][1] * y + M[1][2] * z;
+      Zw[i] = o[2] + M[2][0] * x + M[2][1] * y + M[2][2] * z;
+    }
+    const pl0 = planeMap.get(P.PL[0]) || planeMap.get(0);
+    const M0 = pl0.matrix, o0 = pl0.origin, ix = P.init.x, iy = P.init.y, iz = P.init.z;
+    const init = {
+      x: o0[0] + M0[0][0] * ix + M0[0][1] * iy + M0[0][2] * iz,
+      y: o0[1] + M0[1][0] * ix + M0[1][1] * iy + M0[1][2] * iz,
+      z: o0[2] + M0[2][0] * ix + M0[2][1] * iy + M0[2][2] * iz,
+    };
+    return { n, Xw, Yw, Zw, K: P.K, TL: P.TL, OP: P.OP, init };
+  }
+
+  // Re-express a world point/init as a signed grid's own (ax,ay,az) - az is always the "height"
+  // HeightSim measures along, oriented (via `sign`) so the tool's real retract direction is +az,
+  // matching HeightSim's convention (zTop = uncut reference, cutting only ever lowers h).
+  function triPermute(axisIdx, sign, Xw, Yw, Zw, i) {
+    if (axisIdx === 2) return [Xw[i], Yw[i], sign * Zw[i]];
+    if (axisIdx === 0) return [Yw[i], Zw[i], sign * Xw[i]];
+    return [Zw[i], Xw[i], sign * Yw[i]];
+  }
+  function triPermuteInit(axisIdx, sign, init) {
+    if (axisIdx === 2) return { x: init.x, y: init.y, z: sign * init.z };
+    if (axisIdx === 0) return { x: init.y, y: init.z, z: sign * init.x };
+    return { x: init.z, y: init.x, z: sign * init.y };
+  }
+
+  // Build one HeightSim per signed axis direction actually used by an aligned plane. Every grid
+  // shares ONE overall world bounding box (every aligned plane's feed-move extent combined) -
+  // NOT a box tight to just that grid's own footprint, which would silently produce much finer
+  // absolute resolution than `target` calls for and multiply cut cost (found and fixed during the
+  // design spike - see docs/plan). Returns everything cutTriDexelMove/fuseTriDexel need:
+  // grids (Map<signedKey,HeightSim>), views (Map<signedKey,{X,Y,Z,K,TL,OP,init}> - the same
+  // permuted per-grid move data cutMove expects), keyOfMove (per-move signed key, or null for an
+  // oblique-plane move), plus the classification result and the shared world box itself.
+  function buildTriDexel(P, target, pad) {
+    if (pad == null) pad = 5;
+    const w = worldizeMoves(P);
+    const cls = classifyPlanes(P.planes);
+    const { alignedIds, obliqueIds, signOf } = cls;
+    const n = P.n;
+    const keyOfMove = new Array(n).fill(null);
+    const usedKeys = new Set();
+    for (let i = 0; i < n; i++) {
+      const key = signOf.get(P.PL[i]);
+      if (!key) continue; // oblique plane, or a plane with no moves - not tri-dexel's problem
+      keyOfMove[i] = key; usedKeys.add(key);
+    }
+    let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity, zmin = Infinity, zmax = -Infinity;
+    for (let i = 0; i < n; i++) {
+      if (!keyOfMove[i] || !P.K[i]) continue;
+      const x = w.Xw[i], y = w.Yw[i], z = w.Zw[i];
+      if (x < xmin) xmin = x; if (x > xmax) xmax = x;
+      if (y < ymin) ymin = y; if (y > ymax) ymax = y;
+      if (z < zmin) zmin = z; if (z > zmax) zmax = z;
+    }
+    // Pad by the largest PLAUSIBLE tool diameter, not the largest one outright: a mis-parsed tap
+    // (e.g. "8-32" thread size read as an 8 inch/203.2mm diameter - the same class of bug as the
+    // known numbered-drill-misread-as-inches quirk) must not blow the shared box up to cover a
+    // tool that never really cuts. A percentile-by-index degrades to "the max" on a short tool
+    // list (this job has 15 tools; index floor(15*0.95)=14 IS the last element), so reject
+    // outliers by ratio to the median instead, which stays robust regardless of list length.
+    const diams = P.tools.map(t => t.D || 6).filter(d => d > 0).sort((a, b) => a - b);
+    const median = diams.length ? diams[Math.floor(diams.length / 2)] : 6;
+    const plausible = diams.filter(d => d <= Math.max(median * 5, 25));
+    const padD = plausible.length ? plausible[plausible.length - 1] : (diams.length ? diams[diams.length - 1] : 12.7);
+    const rpad = Math.max(pad, padD / 2 + 3);
+    xmin -= rpad; xmax += rpad; ymin -= rpad; ymax += rpad; zmin -= rpad; zmax += rpad;
+
+    const grids = new Map(), views = new Map();
+    for (const key of usedKeys) {
+      const axisIdx = 'XYZ'.indexOf(key[0]), sign = key[1] === '+' ? 1 : -1;
+      let box;
+      if (axisIdx === 2) box = { xmin, xmax, ymin, ymax, zbot: sign > 0 ? zmin : -zmax, ztop: sign > 0 ? zmax : -zmin };
+      else if (axisIdx === 0) box = { xmin: ymin, xmax: ymax, ymin: zmin, ymax: zmax, zbot: sign > 0 ? xmin : -xmax, ztop: sign > 0 ? xmax : -xmin };
+      else box = { xmin: zmin, xmax: zmax, ymin: xmin, ymax: xmax, zbot: sign > 0 ? ymin : -ymax, ztop: sign > 0 ? ymax : -ymin };
+      grids.set(key, new HeightSim(box, target));
+      const X = new Float64Array(n), Y = new Float64Array(n), Z = new Float64Array(n);
+      for (let i = 0; i < n; i++) { const [ax, ay, az] = triPermute(axisIdx, sign, w.Xw, w.Yw, w.Zw, i); X[i] = ax; Y[i] = ay; Z[i] = az; }
+      views.set(key, { X, Y, Z, K: w.K, TL: w.TL, OP: w.OP, init: triPermuteInit(axisIdx, sign, w.init) });
+    }
+    return {
+      Xw: w.Xw, Yw: w.Yw, Zw: w.Zw, K: w.K, TL: w.TL, OP: w.OP,
+      alignedIds, obliqueIds, signOf, grids, views, keyOfMove,
+      box: { xmin, xmax, ymin, ymax, zmin, zmax },
+    };
+  }
+
+  // Cut move i into whichever signed grid matches its plane's real tool axis - a no-op for an
+  // oblique-plane move (the caller's legacy buildPlaneSims/cutMoveMulti path handles those
+  // instead). No new numerical geometry: this always calls the ordinary, unmodified cutMove.
+  function cutTriDexelMove(td, P, simTools, i, f0, f1) {
+    const key = td.keyOfMove[i];
+    if (!key) return;
+    cutMove(td.grids.get(key), td.views.get(key), simTools, i, f0, f1);
+  }
+
+  // True at a given WORLD point if this one signed grid still calls it solid (outside the grid's
+  // own footprint counts as "no information, don't exclude" - the safe default for a grid that
+  // simply doesn't cover that area, e.g. a small tilted-plane feature far from another plane's).
+  function triSampleSolid(grid, axisIdx, sign, wx, wy, wz) {
+    let ax, ay, az;
+    if (axisIdx === 2) { ax = wx; ay = wy; az = sign * wz; }
+    else if (axisIdx === 0) { ax = wy; ay = wz; az = sign * wx; }
+    else { ax = wz; ay = wx; az = sign * wy; }
+    const i = Math.floor((ax - grid.x0) / grid.dx), j = Math.floor((ay - grid.y0) / grid.dy);
+    if (i < 0 || j < 0 || i > grid.nx - 1 || j > grid.ny - 1) return true;
+    const h = grid.h[j * grid.nx + i];
+    const EPS = 1e-4;
+    return az <= h + EPS && az >= grid.zBot - EPS;
+  }
+
+  // Boolean-AND every signed grid td has (a world point is solid only if every grid that has an
+  // opinion still calls it solid - axes nobody actually cut along impose no constraint), then mesh
+  // the result via culled voxel-face meshing: emit a quad only where a solid cell touches a
+  // non-solid neighbour. Watertight by construction. Ships intentionally blocky (visible
+  // stairstepping) - smoothing this into a proper isosurface is a deferred follow-up, not this
+  // function's job. Returns {pos, idx} in the same shape meshFromHeightArray returns.
+  function fuseTriDexel(td, target) {
+    const box = td.box;
+    const W = box.xmax - box.xmin, H = box.ymax - box.ymin, D = box.zmax - box.zmin;
+    const c = Math.max(W, H, D) / target;
+    const nx = Math.max(8, Math.round(W / c)), ny = Math.max(8, Math.round(H / c)), nz = Math.max(8, Math.round(D / c));
+    const entries = [...td.grids.entries()].map(([key, grid]) => ({ axisIdx: 'XYZ'.indexOf(key[0]), sign: key[1] === '+' ? 1 : -1, grid }));
+    const occ = new Uint8Array(nx * ny * nz);
+    for (let k = 0; k < nz; k++) {
+      const wz = box.zmin + (k + 0.5) * c;
+      for (let j = 0; j < ny; j++) {
+        const wy = box.ymin + (j + 0.5) * c;
+        for (let i = 0; i < nx; i++) {
+          const wx = box.xmin + (i + 0.5) * c;
+          let solid = true;
+          for (const e of entries) { if (!triSampleSolid(e.grid, e.axisIdx, e.sign, wx, wy, wz)) { solid = false; break; } }
+          if (solid) occ[(k * ny + j) * nx + i] = 1;
+        }
+      }
+    }
+    const isSolidAt = (i, j, k) => (i < 0 || j < 0 || k < 0 || i >= nx || j >= ny || k >= nz) ? false : occ[(k * ny + j) * nx + i] === 1;
+    const pos = [], tri = [];
+    const pushQuad = (v0, v1, v2, v3) => {
+      const base = pos.length / 3;
+      for (const v of [v0, v1, v2, v3]) pos.push(v[0], v[1], v[2]);
+      tri.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    };
+    for (let k = 0; k < nz; k++) {
+      const z0 = box.zmin + k * c, z1 = z0 + c;
+      for (let j = 0; j < ny; j++) {
+        const y0 = box.ymin + j * c, y1 = y0 + c;
+        for (let i = 0; i < nx; i++) {
+          if (!isSolidAt(i, j, k)) continue;
+          const x0 = box.xmin + i * c, x1 = x0 + c;
+          if (!isSolidAt(i - 1, j, k)) pushQuad([x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]);
+          if (!isSolidAt(i + 1, j, k)) pushQuad([x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]);
+          if (!isSolidAt(i, j - 1, k)) pushQuad([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]);
+          if (!isSolidAt(i, j + 1, k)) pushQuad([x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]);
+          if (!isSolidAt(i, j, k - 1)) pushQuad([x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0]);
+          if (!isSolidAt(i, j, k + 1)) pushQuad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]);
+        }
+      }
+    }
+    return { pos: Float32Array.from(pos), idx: Uint32Array.from(tri) };
   }
 
   /* ---------- cross-setup stock chaining ----------
@@ -880,6 +1102,7 @@ const NC = (() => {
 
   return { parseProgram, completeTool, simTool, prof, holderSegments, applyLibrary, typeFromText, parseSetupCsv, applyCsvTools, unzipText, guessFromName,
            HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti,
+           planeAxisWorld, classifyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel,
            meshFromHeightArray, transformPoints, seedHeightSim,
            demoProgram, stressProgram, RAPID_MMPM };
 })();

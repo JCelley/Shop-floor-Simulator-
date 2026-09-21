@@ -9,6 +9,12 @@ const PALETTE = ['#e8a33d', '#2fb5c9', '#c96bd8', '#e5604d', '#7cc04a', '#5b8def
 const toolHex = no => (no > 0 ? PALETTE[(no - 1) % PALETTE.length] : '#9aa7b4');
 const hexRGB = h => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
 const BLUE = [0.24, 0.48, 1.0], GREEN = [0.21, 0.77, 0.39], NEUTRAL = [0.62, 0.68, 0.75], STEEL = [0.5, 0.55, 0.61];
+// Tri-dexel's fused mesh is a one-time, static extraction (see rebuild()) - it never needs to
+// track S.res, the CUTTING grids' resolution (which is what actually controls accuracy). Deliberately
+// decoupled: on a real 71,984-move job, fusing at S.res's own default (360) measured 1.5s/1.65M
+// triangles/40MB versus 122ms/250k triangles/6MB at this fixed, still-detailed target - a cost with
+// no accuracy payoff, since the surface is only ever built once and never re-extracted live.
+const TRI_FUSE_TARGET = 140;
 
 const S = {
   prog: null, name: '', tools: [], simTools: new Map(), sim: null, sims: new Map(), planes: new Map(), snaps: [], finalH: null, finalOp: null,
@@ -62,7 +68,10 @@ function panBy(dx, dy) {
   applyCamera();
 }
 // World-space AABB across every plane's stock box (base plane's transform is identity, so this
-// is bit-identical to using S.sim alone whenever there are no tilted planes).
+// is bit-identical to using S.sim alone whenever there are no tilted planes). On a tri-dexel job,
+// S.planes only holds the oblique fallback plane(s) (see rebuild()) - S.td.box (already in world
+// coordinates) is merged in too, or the camera would fit around just the oblique sliver and miss
+// the fused tri-dexel bulk entirely.
 function worldPlaneBounds() {
   const b = { xmin: Infinity, xmax: -Infinity, ymin: Infinity, ymax: -Infinity, zmin: Infinity, zmax: -Infinity };
   for (const [id, pl] of S.planes) {
@@ -77,14 +86,20 @@ function worldPlaneBounds() {
       if (wz < b.zmin) b.zmin = wz; if (wz > b.zmax) b.zmax = wz;
     }
   }
+  if (S.triDexel && S.td) {
+    const t = S.td.box;
+    if (t.xmin < b.xmin) b.xmin = t.xmin; if (t.xmax > b.xmax) b.xmax = t.xmax;
+    if (t.ymin < b.ymin) b.ymin = t.ymin; if (t.ymax > b.ymax) b.ymax = t.ymax;
+    if (t.zmin < b.zmin) b.zmin = t.zmin; if (t.zmax > b.zmax) b.zmax = t.zmax;
+  }
   return b;
 }
 function setView(name) {
-  const sim = S.sim;
+  const have = S.sim || S.triDexel;
   if (name === 'fit' || name === 'iso') { orb.az = -0.8; orb.el = 0.6; }
   if (name === 'top') { orb.az = -Math.PI / 2; orb.el = 1.52; }
   if (name === 'front') { orb.az = -Math.PI / 2; orb.el = 0.04; }
-  if (sim && (name === 'fit' || name === 'iso' || name === 'top' || name === 'front')) {
+  if (have && (name === 'fit' || name === 'iso' || name === 'top' || name === 'front')) {
     const b = worldPlaneBounds(), W = b.xmax - b.xmin, H = b.ymax - b.ymin, T = b.zmax - b.zmin;
     orb.tx = (b.xmin + b.xmax) / 2; orb.ty = (b.ymin + b.ymax) / 2; orb.tz = b.zmax - Math.min(T, 25) / 2;
     orb.dist = Math.max(W, H, T) * 1.9 + 30;
@@ -123,6 +138,12 @@ scene.add(STOCK.group);
 // local coordinates - identical code to the base plane - and placed in world space purely by
 // positioning/rotating its group with that plane's origin/matrix from engine.js.
 const TILT_ROOT = new THREE.Group(); scene.add(TILT_ROOT);
+// Tri-dexel: one fused, world-frame mesh covering every ALIGNED plane at once (see engine.js's
+// buildTriDexel/fuseTriDexel). No group transform needed - fuseTriDexel's output is already in
+// world coordinates, unlike TILT_ROOT's children which live in their own plane's local frame.
+// Only ever holds 0 or 1 mesh. Real-only fixture/toolpath/tool code needs no changes at all to
+// work with this - it was already drawn in this same world/WCS frame.
+const TRI_ROOT = new THREE.Group(); scene.add(TRI_ROOT);
 function planeQuaternion(m) {
   const m4 = new THREE.Matrix4().set(
     m[0][0], m[0][1], m[0][2], 0,
@@ -410,6 +431,7 @@ function applyPaths() {
 /* ---------- probe (click the stock to see which tool machined it) ---------- */
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
 function pickAt(cx, cy) {
+  if (S.triDexel) return pickAtTri(cx, cy);
   const sim = S.sim; if (!sim || !S.ready) return;
   const r = cv.getBoundingClientRect();
   ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
@@ -441,6 +463,57 @@ function showProbe(i, j, px, py) {
   else if (fin) { opk = fin - 1; head = 'Not cut yet'; body = 'Will be machined by ' + oname(opk) + '.'; btn = 'Jump to that operation'; }
   else { head = 'Original stock surface'; body = 'This program never touches this spot.'; }
   box.innerHTML = `<h3>${head}</h3><p>${body}<br>X ${X.toFixed(2)}  Y ${Y.toFixed(2)}  Z ${z.toFixed(2)}</p><div class="row">${btn ? '<button class="btn primary" id="probeGo" type="button">' + btn + '</button>' : ''}<button class="btn" id="probeX" type="button">Close</button></div>`;
+  box.hidden = false;
+  const w = vp.clientWidth, h = vp.clientHeight;
+  box.style.left = clamp(px + 14, 8, Math.max(8, w - 286)) + 'px'; box.style.top = clamp(py + 14, 8, Math.max(8, h - box.offsetHeight - 8)) + 'px';
+  $('probeX').onclick = hideProbe;
+  if (btn) $('probeGo').onclick = () => { hideProbe(); goToOp(opk); S.playing = true; updatePlay(); };
+}
+
+// Probe for a tri-dexel job: raycast TRI_ROOT's real triangle mesh directly (simpler than the
+// hand-rolled AABB march above, since the mesh is a real triangulated solid in world space), then
+// use the hit face's world normal to find which signed grid (Z+/Z-/Y+/Y-/X+/X-) the hit face
+// belongs to - the culled-voxel-face meshing means every face is an axis-aligned quad, so the
+// matching grid's signed direction has a dot product with the normal close to +1, every other
+// candidate close to -1 or 0. The world hit point is then re-expressed in that grid's own local
+// (i,j) column - the same axis permutation triSampleSolid/fuseTriDexel use in engine.js, inlined
+// here rather than exported since it's a few lines and this is the only other place that needs it -
+// so its .op[] (provenance) can be read directly. Oblique planes (rendered via TILT_ROOT, not
+// TRI_ROOT) are not hit by this raycast at all and stay unprobable, same as today.
+function pickAtTri(cx, cy) {
+  if (!S.td || !S.ready) return;
+  const mesh = TRI_ROOT.children[0];
+  if (!mesh) return hideProbe();
+  const r = cv.getBoundingClientRect();
+  ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObject(mesh, false);
+  if (!hits.length || !hits[0].face) return hideProbe();
+  const hit = hits[0];
+  const n = hit.face.normal.clone().transformDirection(mesh.matrixWorld).normalize();
+  let bestKey = null, bestDot = -Infinity;
+  for (const key of S.td.grids.keys()) {
+    const axisIdx = 'XYZ'.indexOf(key[0]), sign = key[1] === '+' ? 1 : -1;
+    const dot = sign * (axisIdx === 0 ? n.x : axisIdx === 1 ? n.y : n.z);
+    if (dot > bestDot) { bestDot = dot; bestKey = key; }
+  }
+  if (!bestKey) return hideProbe();
+  const grid = S.td.grids.get(bestKey), axisIdx = 'XYZ'.indexOf(bestKey[0]);
+  const wx = hit.point.x, wy = hit.point.y, wz = hit.point.z;
+  const ax = axisIdx === 2 ? wx : axisIdx === 0 ? wy : wz;
+  const ay = axisIdx === 2 ? wy : axisIdx === 0 ? wz : wx;
+  const i = Math.floor((ax - grid.x0) / grid.dx), j = Math.floor((ay - grid.y0) / grid.dy);
+  if (i < 0 || j < 0 || i >= grid.nx || j >= grid.ny) return hideProbe();
+  showProbeTri(grid, i, j, cx - r.left, cy - r.top);
+}
+function showProbeTri(grid, i, j, px, py) {
+  const P = S.prog, idx = j * grid.nx + i, box = $('probe');
+  const live = grid.op[idx];
+  const oname = k => `T${P.ops[k].tool}, ${esc(P.ops[k].label)}`;
+  let head, body = '', btn = '', opk = -1;
+  if (live) { opk = live - 1; head = 'Machined by ' + oname(opk); body = 'At its final depth for this program.'; btn = 'Replay this operation'; }
+  else { head = 'Original stock surface'; body = 'This program never touches this spot.'; }
+  box.innerHTML = `<h3>${head}</h3><p>${body}</p><div class="row">${btn ? '<button class="btn primary" id="probeGo" type="button">' + btn + '</button>' : ''}<button class="btn" id="probeX" type="button">Close</button></div>`;
   box.hidden = false;
   const w = vp.clientWidth, h = vp.clientHeight;
   box.style.left = clamp(px + 14, 8, Math.max(8, w - 286)) + 'px'; box.style.top = clamp(py + 14, 8, Math.max(8, h - box.offsetHeight - 8)) + 'px';
@@ -602,14 +675,20 @@ function showPicker(list) {
   input.focus();
 }
 
-// sims: Map<planeId, HeightSim>, one per plane actually used (buildPlaneSims). Snapshots now
+// sims: Map<planeId, HeightSim>, one per plane actually used (buildPlaneSims) - on a tri-dexel
+// job this is restricted to the oblique fallback plane(s) only (see rebuild()). Snapshots now
 // hold every plane's state together (state: Map<planeId, {h,op}>) so scrubbing restores all
 // planes in lockstep off the one shared program timeline.
-async function prepass(token, sims) {
+// td: NC.buildTriDexel's result, or null. Its grids are cut here too (once, for the whole
+// program) but deliberately NOT snapshotted/restored - the fused mesh built from them after this
+// completes is static through playback/scrubbing (see rebuild()); only S.sims needs live re-cutting.
+async function prepass(token, sims, td) {
   const P = S.prog, n = P.n;
   for (const sim of sims.values()) sim.reset();
   // Cross-setup stock chaining: seed plane 0's starting surface from a previous setup's finished
-  // result, right after reset() and before any of THIS setup's own moves are cut.
+  // result, right after reset() and before any of THIS setup's own moves are cut. Never applies on
+  // a tri-dexel job (plane 0 is always aligned, so it's never in this oblique-only sims map) -
+  // tri-dexel chaining is a separate, unsolved problem (see plan), not attempted here.
   if (S.chainSeed && sims.has(0)) {
     const tpos = NC.transformPoints(S.chainSeed.mesh.pos, S.chainSeed.fromWcs, S.chainSeed.toWcs);
     S.chainCoverage = NC.seedHeightSim(sims.get(0), tpos, S.chainSeed.mesh.idx);
@@ -620,9 +699,10 @@ async function prepass(token, sims) {
   for (let i = 0; i < n; i++) {
     if (i % every === 0) { const state = new Map(); for (const [id, sim] of sims) state.set(id, sim.snapshot()); snaps.push({ i, state }); }
     NC.cutMoveMulti(sims, P, S.simTools, i, 0, 1);
+    if (td) NC.cutTriDexelMove(td, P, S.simTools, i, 0, 1);
     if ((i & 15) === 15) {
       const now = performance.now();
-      if (now - last > 30) { showBusy('Simulating the whole program', i / n); await new Promise(r => setTimeout(r, 0)); if (token !== S.token) return null; last = performance.now(); }
+      if (now - last > 30) { showBusy(td ? 'Simulating the whole program (tri-dexel)' : 'Simulating the whole program', i / n); await new Promise(r => setTimeout(r, 0)); if (token !== S.token) return null; last = performance.now(); }
     }
   }
   const finals = new Map(); for (const [id, sim] of sims) finals.set(id, { h: sim.h.slice(), op: sim.op.slice() });
@@ -636,17 +716,41 @@ async function rebuild(fresh) {
   showBusy('Preparing simulation', 0);
   await new Promise(r => setTimeout(r, 30));
   S.simTools = new Map(S.tools.map(t => [t.no, NC.simTool(t)]));
-  S.sims = NC.buildPlaneSims(S.prog, { xmin: box.xmin, xmax: box.xmax, ymin: box.ymin, ymax: box.ymax, zbot: box.zbot, ztop: box.ztop }, S.res);
-  S.sim = S.sims.get(0);
+  const stockBox = { xmin: box.xmin, xmax: box.xmax, ymin: box.ymin, ymax: box.ymax, zbot: box.zbot, ztop: box.ztop };
+  // Tri-dexel only kicks in once there's more than the trivial base plane worth sharing a world
+  // frame for - a single-plane job (the common case) or a multi-plane job with nothing but the
+  // base aligned takes exactly today's per-plane path, unchanged, at zero cost/regression risk.
+  const cls = NC.classifyPlanes(S.prog.planes);
+  S.triDexel = cls.alignedIds.size > 1;
+  if (S.triDexel) {
+    S.td = NC.buildTriDexel(S.prog, S.res, 5);
+    // Oblique planes (e.g. a real, non-90-degree G68.2 tilt) can't join the shared tri-dexel
+    // frame - see docs/plan - so they still get their own HeightSim via the ordinary, unmodified
+    // buildPlaneSims/cutMoveMulti path, restricted to just that subset via the new onlyIds param.
+    S.sims = NC.buildPlaneSims(S.prog, stockBox, S.res, 5, cls.obliqueIds);
+  } else {
+    S.td = null;
+    S.sims = NC.buildPlaneSims(S.prog, stockBox, S.res);
+  }
+  S.sim = S.sims.get(0);   // undefined on the tri-dexel path - plane 0 is always aligned, never in this map
   let r;
-  try { r = await prepass(token, S.sims); } catch (err) { console.error(err); hideBusy(); toast('Simulation failed: ' + err.message); return; }
+  try { r = await prepass(token, S.sims, S.td); } catch (err) { console.error(err); hideBusy(); toast('Simulation failed: ' + err.message); return; }
   if (!r || token !== S.token) return;
-  S.snaps = r.snaps; S.finalH = r.finals.get(0).h; S.finalOp = r.finals.get(0).op;
-  S.stats = { ms: r.ms, moves: S.prog.n, nx: S.sim.nx, ny: S.sim.ny, dx: S.sim.dx };
+  S.snaps = r.snaps;
+  const fin0 = r.finals.get(0);
+  S.finalH = fin0 ? fin0.h : null; S.finalOp = fin0 ? fin0.op : null;   // null on the tri-dexel path - no working probe there yet (Phase 3)
+  // Grid-resolution chip: on a tri-dexel job there's no single S.sim to report, so use whichever
+  // signed grid happens to be first - purely informational (all grids target the same ~S.res
+  // density), not something anything else depends on.
+  const statSim = S.sim || (S.td && S.td.grids.size ? S.td.grids.values().next().value : null);
+  S.stats = { ms: r.ms, moves: S.prog.n, nx: statSim ? statSim.nx : 0, ny: statSim ? statSim.ny : 0, dx: statSim ? statSim.dx : 0 };
 
   // one mesh-holder per plane: STOCK itself for the base plane (same object every rebuild, as
-  // always), a fresh one per tilted plane positioned/rotated by that plane's own transform.
-  clearGroup(TILT_ROOT);
+  // always), a fresh one per tilted plane positioned/rotated by that plane's own transform. On a
+  // tri-dexel job S.sims only has the oblique fallback plane(s), so this loop naturally builds
+  // only those - plane 0 (and every other aligned plane) is covered by TRI_ROOT's fused mesh
+  // instead, built below.
+  clearGroup(TILT_ROOT); clearGroup(TRI_ROOT);
   S.planes = new Map();
   for (const pl of S.prog.planes) {
     if (!S.sims.has(pl.id)) continue;
@@ -661,6 +765,23 @@ async function rebuild(fresh) {
     const sim = S.sims.get(pl.id), fin = r.finals.get(pl.id);
     buildStock(sim, stock, fin.h);
     S.planes.set(pl.id, { sim, stock, finalH: fin.h, finalOp: fin.op });
+  }
+  STOCK.group.visible = !S.triDexel;   // TRI_ROOT covers plane 0's contribution on the tri-dexel path
+  if (S.triDexel) {
+    // Built once, from the finished prepass state - not re-fused live per frame (fuseTriDexel's
+    // cost, ~110ms at the resolution this was validated at, is far past the 9ms/frame playback
+    // budget). Tool, toolpath lines and HUD keep animating normally; only this mesh is static
+    // through playback/scrubbing. Deliberate v1 UX tradeoff versus today's live per-plane removal.
+    const { pos, idx } = NC.fuseTriDexel(S.td, TRI_FUSE_TARGET);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    geo.computeVertexNormals();
+    // Neutral steel-ish grey, not blue/green: this mesh shows only the finished simulated result,
+    // never live in-progress removal, so the usual "blue = still to remove / green = at final
+    // size" convention (which needs a live vs. target comparison) would be misleading here.
+    const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color(STEEL[0], STEEL[1], STEEL[2]), side: THREE.DoubleSide });
+    TRI_ROOT.add(new THREE.Mesh(geo, mat));
   }
 
   buildToolGroups(); buildFixtures();
@@ -947,6 +1068,6 @@ function frame(now) {
 }
 resize(); setView('fit');
 requestAnimationFrame(frame);
-window.__floorsim = { S, orb, goTo, advance, loadText, handleFiles, openFolder, groupFolderFiles, enterCodeEdit, exitCodeEdit, runCodeEdit, fixScene, rebuild, STOCK, toolGroups, renderer, pickAt, camera, scene };   // handy for debugging in the console
+window.__floorsim = { S, orb, goTo, advance, loadText, handleFiles, openFolder, groupFolderFiles, enterCodeEdit, exitCodeEdit, runCodeEdit, fixScene, rebuild, STOCK, TILT_ROOT, TRI_ROOT, toolGroups, renderer, pickAt, camera, scene };   // handy for debugging in the console
 loadText(NC.demoProgram(), 'Demo program', { stock: { xmin: -50, xmax: 50, ymin: -35, ymax: 35, zbot: -20, ztop: 0 } });
 })();
