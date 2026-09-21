@@ -241,12 +241,19 @@ const NC = (() => {
     for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) for (let k = 0; k < 3; k++) M[r][c] += A[r][k] * B[k][c];
     return M;
   }
+  // G68.2's I/J/K (P0 default) is Fanuc's intrinsic Z-X-Z Euler convention, NOT roll-pitch-yaw
+  // about fixed X/Y/Z: I spins about Z first, J then tilts about the once-rotated X, K spins
+  // about the twice-rotated Z last. The equivalent fixed-axis matrix product is Rz(I)*Rx(J)*Rz(K)
+  // - confirmed decisively (0mm error on all 7 real tilted planes) against a real job's actual
+  // posted stock geometry (see docs/plan and NOTES.md); the previously-assumed Rz(K)*Ry(J)*Rx(I)
+  // roll-pitch-yaw order was wrong (only happened to look plausible on single-axis tilts, where
+  // rotation order doesn't matter, which is all that had been visually checked before).
   function planeMatrix(I, J, K) {
     const ci = Math.cos(deg(I)), si = Math.sin(deg(I)), cj = Math.cos(deg(J)), sj = Math.sin(deg(J)), ck = Math.cos(deg(K)), sk = Math.sin(deg(K));
-    const Rx = [[1, 0, 0], [0, ci, -si], [0, si, ci]];
-    const Ry = [[cj, 0, sj], [0, 1, 0], [-sj, 0, cj]];
-    const Rz = [[ck, -sk, 0], [sk, ck, 0], [0, 0, 1]];
-    return matMul3(matMul3(Rz, Ry), Rx);
+    const Rz1 = [[ci, -si, 0], [si, ci, 0], [0, 0, 1]];
+    const Rx = [[1, 0, 0], [0, cj, -sj], [0, sj, cj]];
+    const Rz2 = [[ck, -sk, 0], [sk, ck, 0], [0, 0, 1]];
+    return matMul3(matMul3(Rz1, Rx), Rz2);
   }
 
   /* ---------- G-code parser ---------- */
