@@ -337,12 +337,24 @@ const NC = (() => {
       const holder = ct.holderId ? parsed.holders.get(ct.holderId) : null;
       if (holder && holder.segments.length) {
         const hk = holder.unit === 'UI' ? 25.4 : 1;
-        // UNVERIFIED, flagged deliberately rather than guessed: the segment order/direction
-        // (tool-end-first vs spindle-end-first) has not been confirmed against a known real
-        // holder's real dimensions - shipped in the file's own written order. This project's
-        // other tool-library format documents its segments as "tool end upward"; whether this
-        // CIMCO format matches or is reversed is an open question - see docs/plan/NOTES.md.
-        t.holderSegs = holder.segments.map(s => ({ h: s.length * hk, d0: s.lowerDia * hk, d1: s.upperDia * hk }));
+        // Segment ARRAY ORDER is tool-end-first (matching what holderSegments()/makeToolGroup()
+        // walk: d0 at the tool side, d1 toward the spindle). WITHIN each segment the file's first
+        // column ("upperDia", = the post's holder.getDiameter(i)) is the TOOL-side diameter and
+        // the second ("lowerDia", = getDiameter(i-1)) is the spindle-side one - i.e. Fusion
+        // indexes holder sections spindle-end-first, so the post's `for (i = n-1; i > 0; i--)`
+        // loop emits them tool-end-first with the higher index (nearer the tool) written first.
+        //
+        // Decided by measuring profile continuity on all three real holders in
+        // fixtures/cimco/O1224.setup, not by reading docs: a real holder is continuous except at
+        // genuine shoulders, so the correct mapping should leave almost every segment junction
+        // matching. d0=upperDia breaks 6 of 24 junctions across those holders; the reverse
+        // (d0=lowerDia, shipped previously) breaks 24 of 24 - every single junction - which is
+        // exactly the "jagged around the larger diameter" artifact that was reported. The 6
+        // remaining breaks are real steps (1.25in collet nose -> 1.73in nut, 1.73in -> 1.93in
+        // body). With this mapping H85 "NBT30-SK20C-90" reads as a textbook BT30 collet chuck:
+        // 1.25 nose, step to the nut, a symmetric wrench groove (1.811 -> 1.4961 -> 1.811), then
+        // a step up to a 1.9291 body for the long 2.48in run back to the spindle.
+        t.holderSegs = holder.segments.map(s => ({ h: s.length * hk, d0: s.upperDia * hk, d1: s.lowerDia * hk }));
         t.holderName = holder.name;
         t.holderD = Math.max(...t.holderSegs.map(s => Math.max(s.d0, s.d1)));
         t.holderH = t.holderSegs.reduce((a, s) => a + s.h, 0);
@@ -979,7 +991,7 @@ const NC = (() => {
   // grids (Map<signedKey,HeightSim>), views (Map<signedKey,{X,Y,Z,K,TL,OP,init}> - the same
   // permuted per-grid move data cutMove expects), keyOfMove (per-move signed key, or null for an
   // oblique-plane move), plus the classification result and the shared world box itself.
-  function buildTriDexel(P, target, pad) {
+  function buildTriDexel(P, target, pad, box0) {
     if (pad == null) pad = 5;
     const w = worldizeMoves(P);
     const cls = classifyPlanes(P.planes);
@@ -992,26 +1004,39 @@ const NC = (() => {
       if (!key) continue; // oblique plane, or a plane with no moves - not tri-dexel's problem
       keyOfMove[i] = key; usedKeys.add(key);
     }
-    let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity, zmin = Infinity, zmax = -Infinity;
-    for (let i = 0; i < n; i++) {
-      if (!keyOfMove[i] || !P.K[i]) continue;
-      const x = w.Xw[i], y = w.Yw[i], z = w.Zw[i];
-      if (x < xmin) xmin = x; if (x > xmax) xmax = x;
-      if (y < ymin) ymin = y; if (y > ymax) ymax = y;
-      if (z < zmin) zmin = z; if (z > zmax) zmax = z;
+    let xmin, xmax, ymin, ymax, zmin, zmax;
+    if (box0) {
+      // A real stock box (from the Fusion/CIMCO export) is authoritative - use it directly rather
+      // than derive one from where tool moves happen to go, and with NO padding at all. The grids
+      // start out all-solid across the whole box, so any pad here is a shell of phantom material
+      // around the real stock that nothing ever cuts away - it renders as a visibly oversized
+      // block. The real stock bounds ARE the material boundary; the tool cannot remove material
+      // that was never there, and a move reaching past the edge is correctly clamped by the grid.
+      xmin = box0.xmin; xmax = box0.xmax;
+      ymin = box0.ymin; ymax = box0.ymax;
+      zmin = box0.zbot; zmax = box0.ztop;
+    } else {
+      xmin = Infinity; xmax = -Infinity; ymin = Infinity; ymax = -Infinity; zmin = Infinity; zmax = -Infinity;
+      for (let i = 0; i < n; i++) {
+        if (!keyOfMove[i] || !P.K[i]) continue;
+        const x = w.Xw[i], y = w.Yw[i], z = w.Zw[i];
+        if (x < xmin) xmin = x; if (x > xmax) xmax = x;
+        if (y < ymin) ymin = y; if (y > ymax) ymax = y;
+        if (z < zmin) zmin = z; if (z > zmax) zmax = z;
+      }
+      // Pad by the largest PLAUSIBLE tool diameter, not the largest one outright: a mis-parsed tap
+      // (e.g. "8-32" thread size read as an 8 inch/203.2mm diameter - the same class of bug as the
+      // known numbered-drill-misread-as-inches quirk) must not blow the shared box up to cover a
+      // tool that never really cuts. A percentile-by-index degrades to "the max" on a short tool
+      // list (this job has 15 tools; index floor(15*0.95)=14 IS the last element), so reject
+      // outliers by ratio to the median instead, which stays robust regardless of list length.
+      const diams = P.tools.map(t => t.D || 6).filter(d => d > 0).sort((a, b) => a - b);
+      const median = diams.length ? diams[Math.floor(diams.length / 2)] : 6;
+      const plausible = diams.filter(d => d <= Math.max(median * 5, 25));
+      const padD = plausible.length ? plausible[plausible.length - 1] : (diams.length ? diams[diams.length - 1] : 12.7);
+      const rpad = Math.max(pad, padD / 2 + 3);
+      xmin -= rpad; xmax += rpad; ymin -= rpad; ymax += rpad; zmin -= rpad; zmax += rpad;
     }
-    // Pad by the largest PLAUSIBLE tool diameter, not the largest one outright: a mis-parsed tap
-    // (e.g. "8-32" thread size read as an 8 inch/203.2mm diameter - the same class of bug as the
-    // known numbered-drill-misread-as-inches quirk) must not blow the shared box up to cover a
-    // tool that never really cuts. A percentile-by-index degrades to "the max" on a short tool
-    // list (this job has 15 tools; index floor(15*0.95)=14 IS the last element), so reject
-    // outliers by ratio to the median instead, which stays robust regardless of list length.
-    const diams = P.tools.map(t => t.D || 6).filter(d => d > 0).sort((a, b) => a - b);
-    const median = diams.length ? diams[Math.floor(diams.length / 2)] : 6;
-    const plausible = diams.filter(d => d <= Math.max(median * 5, 25));
-    const padD = plausible.length ? plausible[plausible.length - 1] : (diams.length ? diams[diams.length - 1] : 12.7);
-    const rpad = Math.max(pad, padD / 2 + 3);
-    xmin -= rpad; xmax += rpad; ymin -= rpad; ymax += rpad; zmin -= rpad; zmax += rpad;
 
     const grids = new Map(), views = new Map();
     for (const key of usedKeys) {

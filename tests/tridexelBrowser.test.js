@@ -68,6 +68,41 @@ const ok = (c, m) => { if (!c) { fails++; console.log('FAIL', m); } else console
   await page.screenshot({ path: path.join(OUT_DIR, 'tridexel-o1224.png') });
   ok(fs.existsSync(path.join(OUT_DIR, 'tridexel-o1224.png')), 'screenshot written to tests/.tmp/screenshots/tridexel-o1224.png');
 
+  // ---- live removal, in a real browser: reload with O1224's OWN real CIMCO data (its real stock
+  // box, so the grid is sized for this actual part) and capture the stock part-way through being
+  // cut. The point is a picture a human can look at and see material genuinely part-removed -
+  // uncut at the start, partly cut in the middle - rather than the finished shape from frame one.
+  {
+    const setupText = fs.readFileSync(path.join(ROOT, 'fixtures', 'cimco', 'O1224.setup'), 'utf8');
+    const stockBuf = fs.readFileSync(path.join(ROOT, 'fixtures', 'cimco', 'O1224_STOCK.stl'));
+    const fixtureBuf = fs.readFileSync(path.join(ROOT, 'fixtures', 'cimco', 'O1224_FIXTURE.stl'));
+    await page.evaluate(({ nc, setup, stock, fixture }) => {
+      const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+      const F = window.__floorsim;
+      return F.handleFiles([
+        new File([nc], 'O1224.NC'),
+        new File([setup], 'O1224.setup'),
+        new File([b64(stock)], 'O1224_STOCK.stl'),
+        new File([b64(fixture)], 'O1224_FIXTURE.stl'),
+      ]);
+    }, { nc: nc1224, setup: setupText, stock: stockBuf.toString('base64'), fixture: fixtureBuf.toString('base64') });
+    await page.waitForFunction(() => window.__floorsim && window.__floorsim.S.ready && window.__floorsim.S.triDexel === true, { timeout: 60000 });
+
+    const cut = () => page.evaluate(() => {
+      let c = 0; for (const g of window.__floorsim.S.td.grids.values()) for (let k = 0; k < g.op.length; k++) if (g.op[k]) c++;
+      return c;
+    });
+    const atStart = await cut();
+    ok(atStart === 0, `real browser: stock starts uncut (${atStart} cut cells)`);
+    await page.evaluate(() => { const F = window.__floorsim; F.goTo(F.S.prog.total * 0.4); });
+    await page.waitForTimeout(1200);
+    const atMid = await cut();
+    ok(atMid > 0, `real browser: material genuinely removed part-way through (${atMid} cut cells)`);
+    await page.evaluate(() => window.__floorsim.renderer.render(window.__floorsim.scene, window.__floorsim.camera));
+    await page.screenshot({ path: path.join(OUT_DIR, 'tridexel-o1224-midplayback.png') });
+    ok(fs.existsSync(path.join(OUT_DIR, 'tridexel-o1224-midplayback.png')), 'mid-playback screenshot written to tests/.tmp/screenshots/tridexel-o1224-midplayback.png');
+  }
+
   console.log('\nconsole/js errors:', errors.length ? errors : 'none');
   ok(errors.length === 0, 'no runtime errors in a real browser');
 

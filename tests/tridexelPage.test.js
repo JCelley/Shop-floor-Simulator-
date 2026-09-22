@@ -1,8 +1,11 @@
 // Phase 2 of tri-dexel: real O1224.NC (8 planes, 7 aligned + 1 real oblique one at ~80deg) driven
-// through the actual page. O1224 has no fixture export of its own, so OP50.floorsim.json (a
-// different real job's real fixture geometry, 45 bodies) is loaded alongside it purely as a
-// stand-in to test the attachment MECHANISM (one shared world frame needs no per-plane rotation
-// code to keep the fixture lined up) - not a claim that this is O1224's real vise. See docs/plan.
+// through the actual page. Loaded together with O1224's OWN real CIMCO scanning data
+// (fixtures/cimco/O1224.*) rather than an unrelated job's stand-in - now that a real, matching
+// fixture/stock export exists for this exact job, using it here is both more realistic and
+// required: since buildTriDexel prefers a real stock box when S.setup.stock is present (see
+// docs/plan), feeding it a MISMATCHED box (an unrelated job's stand-in) would size the tri-dexel
+// grid for the wrong part and break the probe test below in a way that isn't a real bug - it was
+// this test's own fixture choice becoming stale once that preference landed, not new code.
 const ROOT = require('path').join(__dirname, '..');
 const fs = require('fs'), path = require('path');
 const { JSDOM, VirtualConsole } = require('jsdom');
@@ -14,18 +17,28 @@ const errors = []; const vc = new VirtualConsole(); vc.on('jsdomError', e => err
 const w = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: vc, url: 'http://localhost/' }).window, d = w.document;
 const sleep = ms => new Promise(r => setTimeout(r, ms)); let fails = 0;
 const ok = (c, m) => { if (!c) { fails++; console.log('FAIL', m); } else console.log('ok  ', m); };
-const U = path.join(ROOT, 'fixtures') + path.sep, C = path.join(ROOT, 'fixtures', 'setups') + path.sep;
+const U = path.join(ROOT, 'fixtures') + path.sep, C = path.join(ROOT, 'fixtures', 'cimco') + path.sep;
 const mk = (txt, name) => new w.File([txt], name);
+const mkBin = (buf, name) => new w.File([buf], name);
 const ready = async () => { await sleep(300); for (let i = 0; i < 600 && !w.__floorsim.S.ready; i++) await sleep(100); };
 
 (async () => {
   for (let i = 0; i < 100 && !(w.__floorsim && w.__floorsim.S.ready); i++) await sleep(50);
   const F = w.__floorsim, S = F.S;
 
-  // ---- real O1224 (8 planes, 7 aligned + 1 oblique) + a stand-in fixture, loaded together
+  // ---- real O1224 (8 planes, 7 aligned + 1 oblique) + its own real CIMCO scanning data
   const nc1224 = fs.readFileSync(U + 'O1224.NC', 'utf8');
-  const fixtureStandIn = fs.readFileSync(C + 'OP50.floorsim.json', 'utf8');
-  await F.handleFiles([mk(nc1224, 'O1224.NC'), mk(fixtureStandIn, 'OP50.floorsim.json')]); await ready();
+  const setupText = fs.readFileSync(C + 'O1224.setup', 'utf8');
+  const stockBuf = fs.readFileSync(C + 'O1224_STOCK.stl');
+  const partBuf = fs.readFileSync(C + 'O1224_PART.stl');
+  const fixtureBuf = fs.readFileSync(C + 'O1224_FIXTURE.stl');
+  await F.handleFiles([
+    mk(nc1224, 'O1224.NC'),
+    mk(setupText, 'O1224.setup'),
+    mkBin(stockBuf, 'O1224_STOCK.stl'),
+    mkBin(partBuf, 'O1224_PART.stl'),
+    mkBin(fixtureBuf, 'O1224_FIXTURE.stl'),
+  ]); await ready();
 
   ok(S.triDexel === true, 'O1224 has 7 aligned planes (>1) - tri-dexel engages: S.triDexel = ' + S.triDexel);
   ok(!!S.td, 'S.td (the tri-dexel build) is populated');
@@ -39,9 +52,79 @@ const ready = async () => { await sleep(300); for (let i = 0; i < 600 && !w.__fl
   ok(S.planes.size === 1 && S.planes.has(7), 'S.planes holds only the oblique plane (id 7): ' + [...S.planes.keys()]);
   ok(F.STOCK.group.visible === false, 'the base-plane STOCK mesh is hidden - TRI_ROOT covers plane 0 now');
 
-  ok(F.fixScene.children.length === 45, '45 workholding bodies drawn from the stand-in fixture file, got ' + F.fixScene.children.length);
+  // cimcoToFloorsimSetup emits ONE fixture entry (the whole real FIXTURE.stl as a single merged
+  // mesh, 117,870 real triangles), unlike the older Fusion export's per-body fixtures[] array.
+  ok(F.fixScene.children.length === 1, 'the real FIXTURE.stl is drawn as one mesh, got ' + F.fixScene.children.length);
 
-  // ---- Phase 3: real probe on the fused tri-dexel mesh
+  // ---- tool model worldization: position AND orientation must reflect the move's real plane,
+  // not the raw local coordinates updateTool() used to render directly. Drive playback to a real
+  // move on a genuinely tilted plane (id 1, ijk 90/90/0 - not the identity base plane) and to one
+  // on plane 0, then compare the ACTUAL rendered tool group against hand-computed world values.
+  {
+    const P = S.prog;
+    let ii1 = -1, ii0 = -1;
+    for (let i = 0; i < P.n; i++) {
+      if (ii1 < 0 && P.PL[i] === 1) ii1 = i;
+      if (ii0 < 0 && P.PL[i] === 0) ii0 = i;
+      if (ii1 >= 0 && ii0 >= 0) break;
+    }
+    ok(ii1 >= 0, 'O1224 has at least one real move on tilted plane 1');
+    ok(ii0 >= 0, 'O1224 has at least one real move on base plane 0');
+
+    const check = async (ii, label, expectIdentity) => {
+      const pl = P.planes[P.PL[ii]], m = pl.matrix;
+      const x = P.X[ii], y = P.Y[ii], z = P.Z[ii];
+      const ex = pl.origin[0] + m[0][0] * x + m[0][1] * y + m[0][2] * z;
+      const ey = pl.origin[1] + m[1][0] * x + m[1][1] * y + m[1][2] * z;
+      const ez = pl.origin[2] + m[2][0] * x + m[2][1] * y + m[2][2] * z;
+      F.goTo(ii > 0 ? P.cumT[ii - 1] : 0);
+      await sleep(100); // updateTool() runs in the RAF loop (frame()), not synchronously inside goTo()
+      const tg = F.toolGroups.get(P.TL[ii]);
+      const dx = Math.abs(tg.position.x - ex), dy = Math.abs(tg.position.y - ey), dz = Math.abs(tg.position.z - ez);
+      ok(dx < 1e-3 && dy < 1e-3 && dz < 1e-3, `${label}: tool world position matches hand-computed (${ex.toFixed(2)},${ey.toFixed(2)},${ez.toFixed(2)}) vs got (${tg.position.x.toFixed(2)},${tg.position.y.toFixed(2)},${tg.position.z.toFixed(2)})`);
+      const q = tg.quaternion, isIdentity = Math.abs(q.x) < 1e-9 && Math.abs(q.y) < 1e-9 && Math.abs(q.z) < 1e-9 && Math.abs(q.w - 1) < 1e-9;
+      ok(isIdentity === expectIdentity, `${label}: tool quaternion identity=${isIdentity}, expected ${expectIdentity}`);
+    };
+    await check(ii1, 'plane 1 (tilted)', false);
+    await check(ii0, 'plane 0 (base)', true);
+  }
+
+  // ---- live stock removal: the tri-dexel grids must genuinely carry PARTIAL cut state as the
+  // program plays, not just the finished shape. Counting cut cells (op[] is non-zero only where a
+  // real move removed material) at three points in the timeline proves progressive cutting rather
+  // than a static mesh being repainted: uncut at the start, partly cut in the middle, more cut
+  // later, and scrubbing BACK returns to a genuinely earlier state rather than staying at the end.
+  {
+    const P = S.prog;
+    const cutCells = () => { let c = 0; for (const g of S.td.grids.values()) for (let k = 0; k < g.op.length; k++) if (g.op[k]) c++; return c; };
+
+    F.goTo(0); await sleep(60);
+    const atStart = cutCells();
+    ok(atStart === 0, `at time zero the stock is uncut: ${atStart} cut cells (the "already machined before it runs" bug)`);
+
+    F.goTo(P.total * 0.35); await sleep(200);
+    const atMid = cutCells();
+    ok(atMid > 0, `part-way through, material has actually been removed: ${atMid} cut cells`);
+
+    F.goTo(P.total * 0.75); await sleep(200);
+    const atLate = cutCells();
+    ok(atLate > atMid, `further along, MORE has been removed: ${atLate} > ${atMid} cut cells`);
+
+    F.goTo(P.total * 0.35); await sleep(200);
+    const backAgain = cutCells();
+    ok(backAgain < atLate, `scrubbing back restores an earlier, less-cut state: ${backAgain} < ${atLate} cut cells`);
+
+    // The visible mesh must actually track that state, not just the underlying grids.
+    const triAtMid = F.TRI_ROOT.children.find(c => c.isMesh).geometry.index.count / 3;
+    F.goTo(P.total); await sleep(400);
+    const triAtEnd = F.TRI_ROOT.children.find(c => c.isMesh).geometry.index.count / 3;
+    ok(triAtMid > 0 && triAtEnd > 0, `the fused mesh is rebuilt at both points (${triAtMid} -> ${triAtEnd} tris)`);
+    ok(triAtMid !== triAtEnd, `the fused mesh genuinely CHANGES between timeline points (${triAtMid} vs ${triAtEnd} tris) - not one static mesh`);
+  }
+
+  // ---- Phase 3: real probe on the fused tri-dexel mesh.
+  // Runs at the END of the program (goTo(P.total) above), where the grids carry the finished cut
+  // state - at time zero they are now correctly uncut, so there would be nothing to probe.
   const cvs = F.renderer.domElement; cvs.setPointerCapture = () => {}; cvs.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
   const fire = (type, x, y) => cvs.dispatchEvent(new w.MouseEvent(type, { clientX: x, clientY: y, bubbles: true }));
   const project = (x, y, z) => {
@@ -101,7 +184,7 @@ const ready = async () => { await sleep(300); for (let i = 0; i < 600 && !w.__fl
   // ---- regression proof: single-plane O1228 still takes exactly today's path, unaffected
   errors.length = 0;
   const nc1228 = fs.readFileSync(U + 'O1228.NC', 'latin1');
-  const setupOP50 = fs.readFileSync(C + 'OP50.floorsim.json', 'utf8');
+  const setupOP50 = fs.readFileSync(U + 'setups' + path.sep + 'OP50.floorsim.json', 'utf8'); // O1228's own real matching setup, not the cimco dir
   await F.handleFiles([mk(nc1228, 'O1228.NC'), mk(setupOP50, 'OP50.floorsim.json')]); await ready();
 
   ok(S.triDexel === false, 'single-plane O1228 does not engage tri-dexel: S.triDexel = ' + S.triDexel);

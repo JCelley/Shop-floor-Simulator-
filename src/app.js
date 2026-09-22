@@ -9,12 +9,19 @@ const PALETTE = ['#e8a33d', '#2fb5c9', '#c96bd8', '#e5604d', '#7cc04a', '#5b8def
 const toolHex = no => (no > 0 ? PALETTE[(no - 1) % PALETTE.length] : '#9aa7b4');
 const hexRGB = h => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
 const BLUE = [0.24, 0.48, 1.0], GREEN = [0.21, 0.77, 0.39], NEUTRAL = [0.62, 0.68, 0.75], STEEL = [0.5, 0.55, 0.61];
-// Tri-dexel's fused mesh is a one-time, static extraction (see rebuild()) - it never needs to
-// track S.res, the CUTTING grids' resolution (which is what actually controls accuracy). Deliberately
-// decoupled: on a real 71,984-move job, fusing at S.res's own default (360) measured 1.5s/1.65M
-// triangles/40MB versus 122ms/250k triangles/6MB at this fixed, still-detailed target - a cost with
-// no accuracy payoff, since the surface is only ever built once and never re-extracted live.
-const TRI_FUSE_TARGET = 140;
+// Tri-dexel's fused mesh is re-extracted from the live grids as the program plays, so its
+// resolution is deliberately decoupled from S.res (the CUTTING grids' resolution, which is what
+// actually controls accuracy). Two targets, both measured on the real 71,984-move O1224 job with
+// its real stock box: TARGET is for a SETTLED picture (paused/scrubbed/finished) where there's no
+// frame budget to protect - 54ms, 194k triangles. LIVE is for re-fusing DURING playback - 11ms,
+// 64k triangles, which is the sweet spot on the measured curve (50 -> 9.3ms/24k, 60 -> 10.5ms/36k,
+// 80 -> 11.3ms/64k, 100 -> 20.8ms/98k, 140 -> 53.9ms/194k: 80 buys nearly triple the detail of 50
+// for ~2ms, because the cost is dominated by occupancy sampling, not triangle emission).
+const TRI_FUSE_TARGET = 140, TRI_FUSE_LIVE = 80;
+// Floor on the gap between live re-fuses. At 11ms a fuse that's ~7% of the budget on this desktop;
+// a ~4x slower Chromebook lands near 30%, which the existing "sim-limited" chip already surfaces
+// if the device genuinely can't keep up.
+const TRI_FUSE_MIN_MS = 150;
 
 const S = {
   prog: null, name: '', tools: [], simTools: new Map(), sim: null, sims: new Map(), planes: new Map(), snaps: [], finalH: null, finalOp: null,
@@ -22,6 +29,7 @@ const S = {
   token: 0, ready: false, curOp: -1, limited: false, stats: {}, needsRender: true, stock: null,
   path: 'op', rapids: false, holder: true, ghost: true, hudTool: -1, hudLine: -1, toolsDirty: false, setup: null, fixtures: true, stepMode: false,
   lastChainable: null, chainSeed: null, chainCoverage: null, partMesh: null,
+  td: null, triDexel: false, triDirty: false, triFuseAt: 0, triFuseLive: null,
 };
 
 /* ================= viewer ================= */
@@ -327,7 +335,17 @@ function updateTool() {
   if (S.activeTool !== no) { const a = toolGroups.get(S.activeTool); if (a) a.visible = false; S.activeTool = no; }
   const g = toolGroups.get(no); if (!g) return;
   g.visible = true;
-  if (g.position.x !== x || g.position.y !== y || g.position.z !== z || S.toolShown !== no) { g.position.set(x, y, z); S.toolShown = no; invalidate(); }
+  // Worldize: toolPos() returns raw LOCAL coordinates in the move's own plane frame. For plane 0
+  // (every single-plane job, always) this is a no-op - identity matrix, zero origin - so this is
+  // unconditional, not gated on S.triDexel: correctly covers tilted-plane tri-dexel moves AND the
+  // oblique-plane fallback (TILT_ROOT) for free, with zero behavior change for the common case.
+  const pl = P.planes[P.PL[ii]], m = pl.matrix;
+  const wx = pl.origin[0] + m[0][0] * x + m[0][1] * y + m[0][2] * z;
+  const wy = pl.origin[1] + m[1][0] * x + m[1][1] * y + m[1][2] * z;
+  const wz = pl.origin[2] + m[2][0] * x + m[2][1] * y + m[2][2] * z;
+  if (g.position.x !== wx || g.position.y !== wy || g.position.z !== wz || S.toolShown !== no) {
+    g.position.set(wx, wy, wz); g.quaternion.copy(planeQuaternion(m)); S.toolShown = no; invalidate();
+  }
 }
 
 /* ---------- workholding from the Fusion export script ---------- */
@@ -707,13 +725,51 @@ function showPicker(list) {
   input.focus();
 }
 
+// Restore one snapshot's full state: every plane's HeightSim, plus every tri-dexel signed grid.
+// Both are plain HeightSims, so both use the same snapshot()/restore() pair - the tri-dexel grids
+// have to come back in lockstep with the per-plane ones or a scrub would show the stock at one
+// point in the program and the oblique plane at another.
+function restoreSnap(snap) {
+  if (!snap) return;
+  for (const [id, sim] of S.sims) sim.restore(snap.state.get(id));
+  if (S.td && snap.td) { for (const [key, grid] of S.td.grids) grid.restore(snap.td.get(key)); S.triDirty = true; }
+}
+
+// Re-extract TRI_ROOT's visible surface from the CURRENT (partially cut) grid state.
+// live=true during playback: the cheaper target, throttled, so removal is visible without eating
+// the frame budget. live=false once settled (paused, scrubbed, finished, or freshly rebuilt):
+// the full-quality target, since there's no frame budget left to protect at that point.
+function refreshTriStock(live) {
+  if (!S.triDexel || !S.td) return;
+  const now = performance.now();
+  if (live && now - S.triFuseAt < TRI_FUSE_MIN_MS) return;   // throttle: cap live re-fuse rate
+  if (!S.triDirty && S.triFuseLive === live) return;          // nothing changed and same quality
+  const { pos, idx } = NC.fuseTriDexel(S.td, live ? TRI_FUSE_LIVE : TRI_FUSE_TARGET);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.computeVertexNormals();
+  const old = TRI_ROOT.children.find(c => c.isMesh);
+  if (old) { old.geometry.dispose(); old.geometry = geo; }
+  else {
+    // Neutral steel-ish grey rather than the blue/green "still to remove vs at final size"
+    // convention: that colouring compares a live surface against this program's own finished
+    // one, and the fused tri-dexel surface is rebuilt wholesale each time rather than carrying
+    // per-cell history, so there's nothing to compare against cell-by-cell here.
+    const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color(STEEL[0], STEEL[1], STEEL[2]), side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; TRI_ROOT.add(mesh);
+  }
+  S.triFuseAt = now; S.triDirty = false; S.triFuseLive = live;
+  invalidate();
+}
+
 // sims: Map<planeId, HeightSim>, one per plane actually used (buildPlaneSims) - on a tri-dexel
 // job this is restricted to the oblique fallback plane(s) only (see rebuild()). Snapshots now
 // hold every plane's state together (state: Map<planeId, {h,op}>) so scrubbing restores all
 // planes in lockstep off the one shared program timeline.
-// td: NC.buildTriDexel's result, or null. Its grids are cut here too (once, for the whole
-// program) but deliberately NOT snapshotted/restored - the fused mesh built from them after this
-// completes is static through playback/scrubbing (see rebuild()); only S.sims needs live re-cutting.
+// td: NC.buildTriDexel's result, or null. Its grids are cut AND snapshotted here exactly like the
+// per-plane sims, so playback/scrubbing can show the stock part-way through being cut instead of
+// only its finished shape (which is what a one-time post-prepass fuse used to give).
 async function prepass(token, sims, td) {
   const P = S.prog, n = P.n;
   for (const sim of sims.values()) sim.reset();
@@ -725,11 +781,20 @@ async function prepass(token, sims, td) {
     const tpos = NC.transformPoints(S.chainSeed.mesh.pos, S.chainSeed.fromWcs, S.chainSeed.toWcs);
     S.chainCoverage = NC.seedHeightSim(sims.get(0), tpos, S.chainSeed.mesh.idx);
   }
+  // Tri-dexel's grids count toward the same fixed snapshot memory budget - on the real O1224 job
+  // they are the bulk of it (5 signed grids, ~3MB per snapshot all told), so leaving them out
+  // would silently overshoot it by several times over.
   let bytes = 0; for (const sim of sims.values()) bytes += sim.nx * sim.ny * 6;
+  if (td) for (const grid of td.grids.values()) bytes += grid.nx * grid.ny * 6;
   const maxSnaps = clamp(Math.floor(90e6 / Math.max(1, bytes)), 6, 60), every = Math.max(64, Math.ceil(n / maxSnaps));
   const snaps = [], t0 = performance.now(); let last = t0;
   for (let i = 0; i < n; i++) {
-    if (i % every === 0) { const state = new Map(); for (const [id, sim] of sims) state.set(id, sim.snapshot()); snaps.push({ i, state }); }
+    if (i % every === 0) {
+      const state = new Map(); for (const [id, sim] of sims) state.set(id, sim.snapshot());
+      let tdState = null;
+      if (td) { tdState = new Map(); for (const [key, grid] of td.grids) tdState.set(key, grid.snapshot()); }
+      snaps.push({ i, state, td: tdState });
+    }
     NC.cutMoveMulti(sims, P, S.simTools, i, 0, 1);
     if (td) NC.cutTriDexelMove(td, P, S.simTools, i, 0, 1);
     if ((i & 15) === 15) {
@@ -755,7 +820,10 @@ async function rebuild(fresh) {
   const cls = NC.classifyPlanes(S.prog.planes);
   S.triDexel = cls.alignedIds.size > 1;
   if (S.triDexel) {
-    S.td = NC.buildTriDexel(S.prog, S.res, 5);
+    // Prefer the real stock box when one was actually loaded (same condition loadText() itself
+    // already uses to pick stockFromSetup over autoStock() - reused here, not a new flag) - a
+    // real box is authoritative and far tighter than deriving one from where moves happen to go.
+    S.td = NC.buildTriDexel(S.prog, S.res, 5, (S.setup && S.setup.stock) ? stockBox : undefined);
     // Oblique planes (e.g. a real, non-90-degree G68.2 tilt) can't join the shared tri-dexel
     // frame - see docs/plan - so they still get their own HeightSim via the ordinary, unmodified
     // buildPlaneSims/cutMoveMulti path, restricted to just that subset via the new onlyIds param.
@@ -799,27 +867,14 @@ async function rebuild(fresh) {
     S.planes.set(pl.id, { sim, stock, finalH: fin.h, finalOp: fin.op });
   }
   STOCK.group.visible = !S.triDexel;   // TRI_ROOT covers plane 0's contribution on the tri-dexel path
-  if (S.triDexel) {
-    // Built once, from the finished prepass state - not re-fused live per frame (fuseTriDexel's
-    // cost, ~110ms at the resolution this was validated at, is far past the 9ms/frame playback
-    // budget). Tool, toolpath lines and HUD keep animating normally; only this mesh is static
-    // through playback/scrubbing. Deliberate v1 UX tradeoff versus today's live per-plane removal.
-    const { pos, idx } = NC.fuseTriDexel(S.td, TRI_FUSE_TARGET);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setIndex(new THREE.BufferAttribute(idx, 1));
-    geo.computeVertexNormals();
-    // Neutral steel-ish grey, not blue/green: this mesh shows only the finished simulated result,
-    // never live in-progress removal, so the usual "blue = still to remove / green = at final
-    // size" convention (which needs a live vs. target comparison) would be misleading here.
-    const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color(STEEL[0], STEEL[1], STEEL[2]), side: THREE.DoubleSide });
-    TRI_ROOT.add(new THREE.Mesh(geo, mat));
-  }
 
   buildToolGroups(); buildFixtures();
-  for (const [id, sim] of S.sims) sim.restore(S.snaps[0].state.get(id));
+  restoreSnap(S.snaps[0]);
   S.cur = { i: 0, f: 0 }; S.tau = 0; S.curOp = -1; S.hudLine = -1; S.hudTool = -1;
   for (const pl of S.planes.values()) refreshStock(pl.sim, pl.stock, true);
+  // Fuse the RESTORED (snapshot 0 = uncut) state, not prepass's finished one - the stock has to
+  // start whole and visibly get cut away, same as the per-plane path has always behaved.
+  S.triDirty = true; refreshTriStock(false);
   updateTool(); applyPaths(); buildLegend();
   if (fresh || !S.camSet) { setView('fit'); S.camSet = true; }
   const target = S.prog.total / 30;
@@ -843,6 +898,7 @@ function advance(target, budget) {
     const s0 = i > 0 ? cum[i - 1] : 0, e0 = cum[i], dur = e0 - s0;
     if (target >= e0 || dur <= 1e-12) {
       NC.cutMoveMulti(S.sims, P, S.simTools, i, f, 1);
+      if (S.td) { NC.cutTriDexelMove(S.td, P, S.simTools, i, f, 1); S.triDirty = true; }
       const done = i; i++; f = 0; S.tau = e0;
       // Step mode: pause right after the move that finishes an operation (so the operator sees
       // it complete before the next one starts), or the move where cutter comp first turns on
@@ -856,7 +912,11 @@ function advance(target, budget) {
       if ((++cnt & 7) === 0 && performance.now() - t0 > budget) { S.limited = true; break; }
     } else {
       const nf = (target - s0) / dur;
-      if (nf > f) { NC.cutMoveMulti(S.sims, P, S.simTools, i, f, nf); f = nf; }
+      if (nf > f) {
+        NC.cutMoveMulti(S.sims, P, S.simTools, i, f, nf);
+        if (S.td) { NC.cutTriDexelMove(S.td, P, S.simTools, i, f, nf); S.triDirty = true; }
+        f = nf;
+      }
       S.tau = target; break;
     }
   }
@@ -876,7 +936,7 @@ function goTo(tau) {
   let snap = null; for (const s of S.snaps) if (s.i <= tgt.i) snap = s; else break;
   const back = tgt.i < cur.i || (tgt.i === cur.i && tgt.f < cur.f);
   if (snap && (back || snap.i > cur.i)) {
-    for (const [id, sim] of S.sims) sim.restore(snap.state.get(id));
+    restoreSnap(snap);
     S.cur = { i: snap.i, f: 0 }; S.tau = snap.i > 0 ? P.cumT[snap.i - 1] : 0;
   }
   advance(tau, 220);
@@ -1091,6 +1151,10 @@ function frame(now) {
         if (S.tau >= S.prog.total - 1e-9 && S.cur.i >= S.prog.n) { S.playing = false; updatePlay(); }
       }
       for (const pl of S.planes.values()) refreshStock(pl.sim, pl.stock, false);
+      // Tri-dexel's surface has to be re-extracted wholesale rather than patched per dirty cell
+      // like refreshStock does, so it re-fuses on a throttle while playing and once more at full
+      // quality as soon as things settle (paused, seek finished, or end of program).
+      if (S.triDexel) refreshTriStock(S.playing);
       updateTool(); updateHud(false);
     }
     if (S.needsRender) { S.needsRender = false; renderer.render(scene, camera); fpsN++; }
