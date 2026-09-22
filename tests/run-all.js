@@ -18,6 +18,8 @@ const steps = [
   ['cross-setup stock chaining (engine math)', 'node', ['tests/chainStock.test.js']],
   ['cross-setup stock chaining (real jobs, end-to-end)', 'node', ['tests/chainStockPage.test.js']],
   ['tri-dexel wired into the page (real 3+2 job)', 'node', ['tests/tridexelPage.test.js']],
+  ['CIMCO scanning post: parsers (real O1224 sample)', 'node', ['tests/cimco.test.js']],
+  ['CIMCO scanning post: wired into the page (real O1224 sample)', 'node', ['tests/cimcoPage.test.js']],
   ...(py ? [['fusion export script (math)', py, ['tests/script.test.py']], ['fusion add-in (fake Fusion, real job data)', py, ['tests/addin.test.py']]] : []),
   ['page UI (jsdom, stubbed WebGL)', 'node', ['tests/ui.test.js']],
   ['real cascading-post JSON + real NC (jsdom)', 'node', ['tests/postJson.test.js']],

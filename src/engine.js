@@ -226,6 +226,184 @@ const NC = (() => {
     throw new Error('No JSON found inside the .tools file');
   }
 
+  /* ---------- CIMCO scanning cascading post: real stock/fixture/tool data -------------------
+     Fusion's built-in "CIMCO scanning" cascading post writes a `.setup` text file plus binary
+     STL files (STOCK/PART/FIXTURE) next to the NC/CSV. Real stock and fixture geometry, and a
+     tool+holder database sourced from Fusion's own tool numbers rather than parsed out of NC
+     comments (the NC-comment path misread a tap's "8-32" thread size as an 8 inch diameter -
+     this format reads the same tool's real 0.164in diameter correctly). See docs/plan/NOTES.md
+     for the real sample this was built and tested against. */
+
+  // Binary STL only (80-byte header, uint32 triangle count, 50 bytes/triangle: normal + 3
+  // vertices as 4-byte floats, +2-byte attribute). Same {pos,idx} shape meshFromHeightArray/
+  // fuseTriDexel already return so downstream code treats every mesh source uniformly. No vertex
+  // welding - fine for rendering (computeVertexNormals works per-face without shared vertices).
+  function parseStlBinary(buf) {
+    const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+    if (b.length < 84) throw new Error('Not a binary STL file (too short)');
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    const n = dv.getUint32(80, true), expected = 84 + n * 50;
+    if (b.length !== expected) {
+      const head = new TextDecoder().decode(b.subarray(0, Math.min(80, b.length)));
+      if (/^\s*solid\b/i.test(head)) throw new Error('ASCII STL is not supported here, only binary STL');
+      throw new Error(`STL file size does not match its triangle count (expected ${expected} bytes for ${n} triangles, got ${b.length})`);
+    }
+    const pos = new Float32Array(n * 9);
+    let off = 84, w = 0;
+    for (let i = 0; i < n; i++) {
+      off += 12; // skip the stored normal - recomputed on load, not trusted from the file
+      for (let v = 0; v < 3; v++) { pos[w++] = dv.getFloat32(off, true); pos[w++] = dv.getFloat32(off + 4, true); pos[w++] = dv.getFloat32(off + 8, true); off += 12; }
+      off += 2; // attribute byte count
+    }
+    const idx = new Uint32Array(n * 3);
+    for (let i = 0; i < idx.length; i++) idx[i] = i;
+    return { pos, idx };
+  }
+
+  // Line-based parser for the `.setup` text format. Real grammar (confirmed against a real
+  // posted sample, not guessed): `WCS ID1 X0 Y0 Z0 A0 B0 C0`; `STOCK STL PATH="..." X.. Y.. Z..
+  // A.. B.. C.. UI`; `WORKPIECE ID1 "..." X.. Y.. Z.. A.. B.. C.. UI RGB=r,g,b` (PART, same shape
+  // for FIXTURE); `TOOL <no> "<name>" HOLDER=H<no> KEY=value KEY=value ...`; `HOLDER BEGIN H<no>
+  // "<holder name>" UI` then N lines of `upperDia, lowerDia, length` then `HOLDER END`.
+  // Unrecognized lines are ignored (forward-compatible with post fields this reader doesn't use).
+  function parseCimcoSetup(text) {
+    const out = { wcs: null, stockRef: null, partRef: null, fixtureRef: null, tools: [], holders: new Map() };
+    let curHolder = null;
+    for (const raw of String(text).split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) continue;
+      let m;
+      if ((m = /^WCS\s+ID(\d+)\s+X(-?[\d.]+)\s+Y(-?[\d.]+)\s+Z(-?[\d.]+)\s+A(-?[\d.]+)\s+B(-?[\d.]+)\s+C(-?[\d.]+)/i.exec(line))) {
+        out.wcs = { id: +m[1], x: +m[2], y: +m[3], z: +m[4], a: +m[5], b: +m[6], c: +m[7] };
+        continue;
+      }
+      if ((m = /^STOCK\s+STL\s+PATH="([^"]*)"\s+X(-?[\d.]+)\s+Y(-?[\d.]+)\s+Z(-?[\d.]+)\s+A(-?[\d.]+)\s+B(-?[\d.]+)\s+C(-?[\d.]+)\s+(UI|UM)/i.exec(line))) {
+        out.stockRef = { path: m[1], x: +m[2], y: +m[3], z: +m[4], a: +m[5], b: +m[6], c: +m[7], unit: m[8].toUpperCase() };
+        continue;
+      }
+      if ((m = /^(WORKPIECE|FIXTURE)\s+ID(\d+)\s+"([^"]*)"\s+X(-?[\d.]+)\s+Y(-?[\d.]+)\s+Z(-?[\d.]+)\s+A(-?[\d.]+)\s+B(-?[\d.]+)\s+C(-?[\d.]+)\s+(UI|UM)/i.exec(line))) {
+        const ref = { path: m[3], x: +m[4], y: +m[5], z: +m[6], a: +m[7], b: +m[8], c: +m[9], unit: m[10].toUpperCase() };
+        if (/^WORKPIECE$/i.test(m[1])) out.partRef = ref; else out.fixtureRef = ref;
+        continue;
+      }
+      if ((m = /^HOLDER\s+BEGIN\s+(\S+)\s+"([^"]*)"\s+(UI|UM)/i.exec(line))) {
+        curHolder = { name: m[2], unit: m[3].toUpperCase(), segments: [] };
+        out.holders.set(m[1], curHolder);
+        continue;
+      }
+      if (/^HOLDER\s+END/i.test(line)) { curHolder = null; continue; }
+      if (curHolder && (m = /^(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*$/.exec(line))) {
+        curHolder.segments.push({ upperDia: +m[1], lowerDia: +m[2], length: +m[3] });
+        continue;
+      }
+      if ((m = /^TOOL\s+(\d+)\s+"([^"]*)"\s+(.*)$/i.exec(line))) {
+        const fields = {};
+        for (const tok of m[3].split(/\s+/)) { const eq = tok.indexOf('='); if (eq > 0) fields[tok.slice(0, eq)] = tok.slice(eq + 1); }
+        out.tools.push({ no: +m[1], name: m[2], holderId: fields.HOLDER || null, fields });
+        continue;
+      }
+    }
+    return out;
+  }
+
+  // Fills tool fields from the CIMCO setup's own tool database, matched by tool number - mirrors
+  // applyLibrary's contract (fills already-NC-parsed tool objects, doesn't replace them). More
+  // reliable than NC-comment guessing for the fields it covers: sourced from Fusion's own tool
+  // numbers, not text parsing (see the module header comment for the tap-diameter bug this fixes).
+  function applyCimcoTools(parsed, tools) {
+    let matched = 0;
+    for (const ct of parsed.tools) {
+      const t = tools.find(x => x.no === ct.no);
+      if (!t) continue;
+      const f = ct.fields, k = f.US === 'UI' ? 25.4 : 1;
+      const num = key => (f[key] !== undefined && f[key] !== '') ? parseFloat(f[key]) : undefined;
+      t.type = typeFromText(ct.name);
+      if (f.EMCT === 'BEM') t.type = 'ball'; else if (f.EMCT === 'BNEM') t.type = 'bull'; else if (f.EMCT === 'FEM') t.type = 'flat';
+      if (f.CHTYPE) t.type = 'chamfer';
+      if (UNDERCUT_RE.test(ct.name || '')) t.undercut = true;
+      const D = num('D'); if (D > 0) t.D = D * k;
+      const FL = num('FL'); if (FL > 0) t.flute = FL * k;
+      if (t.type === 'bull') { const CR = num('CR'); if (CR > 0) t.rc = CR * k; }
+      const BL = num('BL'); if (BL > 0) t.stick = BL * k;
+      if (t.type === 'drill') { const TA = num('TA'); if (TA > 0) t.tip = TA; }
+      else if (t.type === 'chamfer') {
+        // "A=" is the post's own tool.taperAngle in radians. INFERRED, not doc-verified: treating
+        // it as the half-angle from the tool axis, because the one real sample (A=0.7854rad =
+        // 45deg) doubles to exactly this engine's own default full included angle (90deg) for an
+        // unspecified chamfer - a strong but single-data-point match, not a checked API fact.
+        const A = num('A'); if (A > 0) t.tip = A * 180 / Math.PI * 2;
+      }
+      if (ct.name) t.name = ct.name;
+      const holder = ct.holderId ? parsed.holders.get(ct.holderId) : null;
+      if (holder && holder.segments.length) {
+        const hk = holder.unit === 'UI' ? 25.4 : 1;
+        // UNVERIFIED, flagged deliberately rather than guessed: the segment order/direction
+        // (tool-end-first vs spindle-end-first) has not been confirmed against a known real
+        // holder's real dimensions - shipped in the file's own written order. This project's
+        // other tool-library format documents its segments as "tool end upward"; whether this
+        // CIMCO format matches or is reversed is an open question - see docs/plan/NOTES.md.
+        t.holderSegs = holder.segments.map(s => ({ h: s.length * hk, d0: s.lowerDia * hk, d1: s.upperDia * hk }));
+        t.holderName = holder.name;
+        t.holderD = Math.max(...t.holderSegs.map(s => Math.max(s.d0, s.d1)));
+        t.holderH = t.holderSegs.reduce((a, s) => a + s.h, 0);
+      }
+      t.defaulted = false; t.fromLib = true; t.fromCimco = true;
+      completeTool(t);
+      matched++;
+    }
+    return matched;
+  }
+
+  function cimcoBBox(mesh) {
+    let xmin = Infinity, ymin = Infinity, zmin = Infinity, xmax = -Infinity, ymax = -Infinity, zmax = -Infinity;
+    for (let i = 0; i < mesh.pos.length; i += 3) {
+      const x = mesh.pos[i], y = mesh.pos[i + 1], z = mesh.pos[i + 2];
+      if (x < xmin) xmin = x; if (x > xmax) xmax = x;
+      if (y < ymin) ymin = y; if (y > ymax) ymax = y;
+      if (z < zmin) zmin = z; if (z > zmax) zmax = z;
+    }
+    return { xmin, xmax, ymin, ymax, zmin, zmax };
+  }
+  // Ordinary roll-pitch-yaw about FIXED X/Y/Z - deliberately NOT G68.2's Fanuc Z-X-Z convention.
+  // This A/B/C describes a CIMCO/Fusion fixture-coordinate-system offset, a different field from
+  // a different part of the toolchain, with zero real evidence on its rotation order either way.
+  // Only exercised so far by a real sample with A=B=C=0 - unverified at nonzero (see below).
+  function cimcoRefMatrix(a, b, c) {
+    const d = v => v * Math.PI / 180, ca = Math.cos(d(a || 0)), sa = Math.sin(d(a || 0)), cb = Math.cos(d(b || 0)), sb = Math.sin(d(b || 0)), cc = Math.cos(d(c || 0)), sc = Math.sin(d(c || 0));
+    const Rx = [[1, 0, 0], [0, ca, -sa], [0, sa, ca]], Ry = [[cb, 0, sb], [0, 1, 0], [-sb, 0, cb]], Rz = [[cc, -sc, 0], [sc, cc, 0], [0, 0, 1]];
+    return matMul3(matMul3(Rz, Ry), Rx);
+  }
+  function applyCimcoRef(mesh, ref) {
+    const k = ref.unit === 'UI' ? 25.4 : 1, M = cimcoRefMatrix(ref.a, ref.b, ref.c);
+    const nonzeroRot = Math.abs(ref.a || 0) > 1e-6 || Math.abs(ref.b || 0) > 1e-6 || Math.abs(ref.c || 0) > 1e-6;
+    const pos = new Float32Array(mesh.pos.length);
+    for (let i = 0; i < mesh.pos.length; i += 3) {
+      const x = mesh.pos[i] * k, y = mesh.pos[i + 1] * k, z = mesh.pos[i + 2] * k;
+      pos[i] = (ref.x || 0) * k + M[0][0] * x + M[0][1] * y + M[0][2] * z;
+      pos[i + 1] = (ref.y || 0) * k + M[1][0] * x + M[1][1] * y + M[1][2] * z;
+      pos[i + 2] = (ref.z || 0) * k + M[2][0] * x + M[2][1] * y + M[2][2] * z;
+    }
+    return { pos, idx: mesh.idx, nonzeroRot };
+  }
+  // Bridges a parsed .setup + its STL meshes into the SAME floorsim-setup shape the Fusion export
+  // add-in already produces (see fixtures/setups/*.floorsim.json) - buildFixtures()/checkSetup()
+  // in app.js need zero changes as a result, they only ever cared about the shape, not the
+  // source. PART is transformed and returned separately (partMesh) - parsed and stored, not
+  // wired into rendering (see docs/plan for why).
+  function cimcoToFloorsimSetup(parsed, meshes, programName) {
+    const warnings = [];
+    const place = (mesh, ref, label) => {
+      const t = applyCimcoRef(mesh, ref);
+      if (t.nonzeroRot) warnings.push(`${label} has a nonzero A/B/C rotation in the .setup file - this rotation convention is unverified against real Fusion/CIMCO behavior, check placement carefully.`);
+      return t;
+    };
+    let stock = null, fixtures = [], partMesh = null;
+    if (meshes.stock && parsed.stockRef) { const t = place(meshes.stock, parsed.stockRef, 'STOCK'); const b = cimcoBBox(t); stock = { xmin: b.xmin, xmax: b.xmax, ymin: b.ymin, ymax: b.ymax, zmin: b.zmin, zmax: b.zmax }; }
+    if (meshes.fixture && parsed.fixtureRef) { const t = place(meshes.fixture, parsed.fixtureRef, 'FIXTURE'); fixtures.push({ name: 'FIXTURE', positions: Array.from(t.pos), indices: Array.from(t.idx) }); }
+    if (meshes.part && parsed.partRef) partMesh = place(meshes.part, parsed.partRef, 'PART');
+    return { setup: { format: 'floorsim-setup', version: 1, units: 'mm', setup: programName, stock, fixtures }, warnings, partMesh };
+  }
+
   /* ---------- tilted work planes (G68.2 / G53.1 / G69) ----------
      3+2 programs tilt to an angle, then cut flat in that plane using X/Y/Z already
      expressed in the tilted plane's own local frame (Tool Center Point Control).
@@ -1103,6 +1281,7 @@ const NC = (() => {
   return { parseProgram, completeTool, simTool, prof, holderSegments, applyLibrary, typeFromText, parseSetupCsv, applyCsvTools, unzipText, guessFromName,
            HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti,
            planeAxisWorld, classifyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel,
+           parseStlBinary, parseCimcoSetup, applyCimcoTools, cimcoToFloorsimSetup,
            meshFromHeightArray, transformPoints, seedHeightSim,
            demoProgram, stressProgram, RAPID_MMPM };
 })();

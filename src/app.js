@@ -21,7 +21,7 @@ const S = {
   tau: 0, cur: { i: 0, f: 0 }, playing: false, speed: 30, pendingSeek: null, mode: 'progress', res: 360,
   token: 0, ready: false, curOp: -1, limited: false, stats: {}, needsRender: true, stock: null,
   path: 'op', rapids: false, holder: true, ghost: true, hudTool: -1, hudLine: -1, toolsDirty: false, setup: null, fixtures: true, stepMode: false,
-  lastChainable: null, chainSeed: null, chainCoverage: null,
+  lastChainable: null, chainSeed: null, chainCoverage: null, partMesh: null,
 };
 
 /* ================= viewer ================= */
@@ -562,6 +562,7 @@ async function loadText(text, name, opts = {}) {
     if (csv) { const n = NC.applyCsvTools(P.tools, csv); info.push(`Setup sheet: ${n} tool${n === 1 ? '' : 's'} sized from it.`); }
     if (opts.tools) for (const o of opts.tools) { const t = P.tools.find(x => x.no === o.no); if (t) { Object.assign(t, o); t.defaulted = false; NC.completeTool(t); } }
     if (lib) { const n = NC.applyLibrary(lib, P.tools); info.push(`Tool library: matched ${n} of ${P.tools.length} tools, holders included.`); }
+    if (opts.cimcoTools) { const n = NC.applyCimcoTools(opts.cimcoTools, P.tools); info.push(`CIMCO scanning post: matched ${n} of ${P.tools.length} tools, holders included (real Fusion tool data, not NC-comment guessing).`); }
     const opsList = opts.ops || (csv && csv.ops) || null, extraWarn = [];
     if (opsList) {
       const same = opsList.length === P.ops.length && opsList.every((o, i) => o.tool === P.ops[i].tool);
@@ -580,6 +581,9 @@ async function loadText(text, name, opts = {}) {
 
     S.ready = false; S.playing = false; updatePlay(); S.curOp = -1; S.cur = { i: 0, f: 0 }; S.tau = 0;
     S.text = text; S.csv = csv; S.lib = lib; S.setup = setup; S.opsList = opts.ops || null; S.exported = opts.exported || null; S.docName = opts.document || null;
+    // The real finished-part mesh from a CIMCO scanning post, when one was loaded - parsed and
+    // kept here for a future true deviation-colouring feature, not rendered by anything yet.
+    S.partMesh = opts.partMesh || null;
     S.prog = P; S.name = name; S.tools = P.tools; S.toolsDirty = false;
     setText($('fname'), name + (opts.exported ? '   exported ' + opts.exported.slice(0, 16).replace('T', ' ') : ''));
     if (opts.stock) S.stock = Object.assign({}, opts.stock); else if (setup && setup.stock) S.stock = stockFromSetup(setup.stock); else autoStock();
@@ -593,6 +597,7 @@ async function loadText(text, name, opts = {}) {
     const usedTools = new Set(P.TL);
     const undercutTools = P.tools.filter(t => t.undercut && usedTools.has(t.no));
     if (undercutTools.length) extraWarn.push(`Undercut tool${undercutTools.length === 1 ? '' : 's'} (${undercutTools.map(t => 'T' + t.no).join(', ')}): the shape can't be simulated by this engine, so stock removal is skipped for it - the toolpath still plays, it just doesn't cut.`);
+    if (opts.cimcoWarn && opts.cimcoWarn.length) extraWarn.push(...opts.cimcoWarn);
     const lines = info.concat(P.notes), warnList = P.warnings.concat(extraWarn, checkSetup(P, S.stock, setup, !!chainSeed));
     $('warns').innerHTML = lines.map(esc).join('<br>') + (warnList.length ? (lines.length ? '<br>' : '') + '<b>Heads up</b><br>' + warnList.map(esc).join('<br>') : '');
     await rebuild(true);
@@ -602,15 +607,21 @@ async function loadText(text, name, opts = {}) {
     }
   } catch (err) { console.error(err); hideBusy(); toast('Could not read that program: ' + err.message); }
 }
-// Accepts any mix of: G-code program, setup-sheet CSV, Fusion .tools / tool-library JSON, job bundle JSON.
+// Accepts any mix of: G-code program, setup-sheet CSV, Fusion .tools / tool-library JSON, job
+// bundle JSON, or a CIMCO scanning cascading post's .setup + STOCK/PART/FIXTURE STL files.
 async function handleFiles(files) {
   exitCodeEdit();   // loading anything new always drops out of an in-progress G-code edit
-  const b = { text: null, name: '', csv: null, lib: null, bundle: null, setup: null, job: null };
+  const b = { text: null, name: '', csv: null, lib: null, bundle: null, setup: null, job: null, cimcoSetupText: null, cimcoStockBuf: null, cimcoPartBuf: null, cimcoFixtureBuf: null };
   for (const f of files) {
     try {
       const n = f.name;
       if (/\.tools$/i.test(n)) b.lib = JSON.parse(await NC.unzipText(await readBuf(f)));
       else if (/\.csv$/i.test(n)) { b.csv = NC.parseSetupCsv(await readFile(f)); if (!b.csv) toast(n + ' does not look like a setup sheet, so it was skipped.'); }
+      else if (/\.setup$/i.test(n)) b.cimcoSetupText = await readFile(f);
+      else if (/_STOCK\.stl$/i.test(n)) b.cimcoStockBuf = await readBuf(f);
+      else if (/_PART\.stl$/i.test(n)) b.cimcoPartBuf = await readBuf(f);
+      else if (/_FIXTURE\.stl$/i.test(n)) b.cimcoFixtureBuf = await readBuf(f);
+      else if (/\.stl$/i.test(n)) { /* an STL with no recognized STOCK/PART/FIXTURE suffix - not part of this format, skip quietly */ }
       else {
         const text = await readFile(f);
         if (/\.json$/i.test(n) || /^\s*[\[{]/.test(text.slice(0, 20))) { const j = JSON.parse(text); if (j && j.format === 'floorsim-job') b.job = j; else if (j && typeof j.gcode === 'string') b.bundle = j; else if (j && j.format === 'floorsim-setup') b.setup = j; else b.lib = j; }
@@ -618,11 +629,28 @@ async function handleFiles(files) {
       }
     } catch (err) { console.error(err); toast('Could not open ' + f.name + ': ' + err.message); }
   }
-  if (b.job) return loadText(b.job.gcode, b.job.program || 'Job', { setup: b.job, lib: b.job.toolLibrary, ops: b.job.ops, exported: b.job.exported, document: b.job.document });
-  if (b.bundle) return loadText(b.bundle.gcode, b.bundle.name || 'Job bundle', { stock: b.bundle.stock, tools: b.bundle.tools, csv: b.csv, lib: b.lib, setup: b.setup });
-  if (b.text) return loadText(b.text, b.name, { csv: b.csv, lib: b.lib, setup: b.setup });
-  if ((b.csv || b.lib || b.setup) && S.text) return loadText(S.text, S.name, { csv: b.csv || S.csv, lib: b.lib || S.lib, setup: b.setup || S.setup, ops: S.opsList, exported: S.exported, document: S.docName });
-  if (b.csv || b.lib || b.setup) toast('Open the program (.NC) first, or select it together with the CSV, .tools and setup files.');
+  let cimcoTools = null, partMesh = null, cimcoWarn = [];
+  if (b.cimcoSetupText) {
+    try {
+      const parsed = NC.parseCimcoSetup(b.cimcoSetupText);
+      const meshes = {};
+      if (b.cimcoStockBuf) meshes.stock = NC.parseStlBinary(b.cimcoStockBuf);
+      if (b.cimcoPartBuf) meshes.part = NC.parseStlBinary(b.cimcoPartBuf);
+      if (b.cimcoFixtureBuf) meshes.fixture = NC.parseStlBinary(b.cimcoFixtureBuf);
+      const programName = b.name ? b.name.replace(/\.nc$/i, '') : (b.job ? b.job.program : 'Job');
+      const result = NC.cimcoToFloorsimSetup(parsed, meshes, programName);
+      if (!b.setup) b.setup = result.setup;   // a JSON floorsim-setup file, if also present, wins - simple, documented default
+      cimcoTools = parsed.tools.length ? parsed : null;
+      partMesh = result.partMesh;
+      cimcoWarn = result.warnings;
+    } catch (err) { console.error(err); toast('Could not read the CIMCO .setup/STL files: ' + err.message); }
+  }
+  const cimcoOpts = { cimcoTools, partMesh, cimcoWarn };
+  if (b.job) return loadText(b.job.gcode, b.job.program || 'Job', Object.assign({ setup: b.job, lib: b.job.toolLibrary, ops: b.job.ops, exported: b.job.exported, document: b.job.document }, cimcoOpts));
+  if (b.bundle) return loadText(b.bundle.gcode, b.bundle.name || 'Job bundle', Object.assign({ stock: b.bundle.stock, tools: b.bundle.tools, csv: b.csv, lib: b.lib, setup: b.setup }, cimcoOpts));
+  if (b.text) return loadText(b.text, b.name, Object.assign({ csv: b.csv, lib: b.lib, setup: b.setup }, cimcoOpts));
+  if ((b.csv || b.lib || b.setup || cimcoTools) && S.text) return loadText(S.text, S.name, Object.assign({ csv: b.csv || S.csv, lib: b.lib || S.lib, setup: b.setup || S.setup, ops: S.opsList, exported: S.exported, document: S.docName }, cimcoOpts));
+  if (b.csv || b.lib || b.setup || cimcoTools) toast('Open the program (.NC) first, or select it together with the CSV, .tools and setup files.');
 }
 
 /* ---------- "Open job folder": groups every file in a shared folder by program number ----------
@@ -635,6 +663,10 @@ function classifyFolderFile(name) {
   if (/\.nc$/i.test(name)) return { kind: 'NC', program: name.replace(/\.nc$/i, '') };
   if (/\.csv$/i.test(name)) return { kind: 'CSV', program: name.replace(/\.csv$/i, '') };
   if (/\.tools$/i.test(name)) return { kind: 'tools', program: name.replace(/\.tools$/i, '') };
+  if (/\.setup$/i.test(name)) return { kind: 'cimco-setup', program: name.replace(/\.setup$/i, '') };
+  if (/_STOCK\.stl$/i.test(name)) return { kind: 'cimco-stock', program: name.replace(/_STOCK\.stl$/i, '') };
+  if (/_PART\.stl$/i.test(name)) return { kind: 'cimco-part', program: name.replace(/_PART\.stl$/i, '') };
+  if (/_FIXTURE\.stl$/i.test(name)) return { kind: 'cimco-fixture', program: name.replace(/_FIXTURE\.stl$/i, '') };
   if (/\.json$/i.test(name)) return { kind: 'JSON', program: name.replace(/\.json$/i, '') };
   return null;
 }
