@@ -615,6 +615,8 @@ async function loadText(text, name, opts = {}) {
     const usedTools = new Set(P.TL);
     const undercutTools = P.tools.filter(t => t.undercut && usedTools.has(t.no));
     if (undercutTools.length) extraWarn.push(`Undercut tool${undercutTools.length === 1 ? '' : 's'} (${undercutTools.map(t => 'T' + t.no).join(', ')}): the shape can't be simulated by this engine, so stock removal is skipped for it - the toolpath still plays, it just doesn't cut.`);
+    const hiddenPlanes = NC.undercutOnlyPlanes(P); hiddenPlanes.delete(0);
+    if (hiddenPlanes.size) extraWarn.push(`${hiddenPlanes.size} tilted plane${hiddenPlanes.size === 1 ? '' : 's'} not shown: every tool cutting ${hiddenPlanes.size === 1 ? 'it is' : 'them is'} an undercut tool, so there's no stock shape to draw there - the toolpath still plays.`);
     if (opts.cimcoWarn && opts.cimcoWarn.length) extraWarn.push(...opts.cimcoWarn);
     const lines = info.concat(P.notes), warnList = P.warnings.concat(extraWarn, checkSetup(P, S.stock, setup, !!chainSeed));
     $('warns').innerHTML = lines.map(esc).join('<br>') + (warnList.length ? (lines.length ? '<br>' : '') + '<b>Heads up</b><br>' + warnList.map(esc).join('<br>') : '');
@@ -819,18 +821,31 @@ async function rebuild(fresh) {
   // base aligned takes exactly today's per-plane path, unchanged, at zero cost/regression risk.
   const cls = NC.classifyPlanes(S.prog.planes);
   S.triDexel = cls.alignedIds.size > 1;
+  // Same condition loadText() uses to pick stockFromSetup over autoStock() - reused here, not a
+  // new flag. A tilted plane's own box (boxFromMoves) still needs padding around its moves when
+  // there's no real stock box to bound it (we're guessing). But when a real box IS known, the
+  // default 5mm pad visibly overshoots it: padding is applied in the plane's own tilted local
+  // frame, and a steep tilt (e.g. O1224's real ~80deg oblique plane) projects that 5mm into a
+  // much larger displacement along a world axis (measured: pad 5 -> 5.8mm past the real box's
+  // wall in world X; pad 0 lands within 0.01mm of the real wall). John spotted the resulting
+  // phantom block sticking out the side of a real job on 2026-09-22 - the real stock box used to
+  // be an oversized guess that hid this; now that it's tight and accurate, the overshoot shows.
+  // 0.5mm, not 0: a plane whose real moves happen to have zero extent in one local axis (e.g. a
+  // single fixed-XY tapping cycle) would otherwise get a zero-width box and a NaN-sized grid
+  // (HeightSim's nx/ny come from dividing by that width) - see boxFromMoves/HeightSim.
+  const hasRealStock = !!(S.setup && S.setup.stock);
+  const tiltPad = hasRealStock ? 0.5 : 5;
   if (S.triDexel) {
-    // Prefer the real stock box when one was actually loaded (same condition loadText() itself
-    // already uses to pick stockFromSetup over autoStock() - reused here, not a new flag) - a
-    // real box is authoritative and far tighter than deriving one from where moves happen to go.
-    S.td = NC.buildTriDexel(S.prog, S.res, 5, (S.setup && S.setup.stock) ? stockBox : undefined);
+    // Prefer the real stock box when one was actually loaded - a real box is authoritative and
+    // far tighter than deriving one from where moves happen to go.
+    S.td = NC.buildTriDexel(S.prog, S.res, 5, hasRealStock ? stockBox : undefined);
     // Oblique planes (e.g. a real, non-90-degree G68.2 tilt) can't join the shared tri-dexel
     // frame - see docs/plan - so they still get their own HeightSim via the ordinary, unmodified
     // buildPlaneSims/cutMoveMulti path, restricted to just that subset via the new onlyIds param.
-    S.sims = NC.buildPlaneSims(S.prog, stockBox, S.res, 5, cls.obliqueIds);
+    S.sims = NC.buildPlaneSims(S.prog, stockBox, S.res, tiltPad, cls.obliqueIds);
   } else {
     S.td = null;
-    S.sims = NC.buildPlaneSims(S.prog, stockBox, S.res);
+    S.sims = NC.buildPlaneSims(S.prog, stockBox, S.res, tiltPad);
   }
   S.sim = S.sims.get(0);   // undefined on the tri-dexel path - plane 0 is always aligned, never in this map
   let r;
@@ -852,8 +867,14 @@ async function rebuild(fresh) {
   // instead, built below.
   clearGroup(TILT_ROOT); clearGroup(TRI_ROOT);
   S.planes = new Map();
+  // Stopgap for undercut-only tilted planes (e.g. a lollipop mill's own plane): that plane's stock
+  // never visibly changes (cutMove already skips undercut tools), so drawing it as an untouched
+  // slab for the whole program reads as broken rather than merely unsimulated. Skip it - the tool
+  // still plays its toolpath as normal, there's just no stock shape drawn there. See NOTES.md.
+  const hideUndercutOnly = NC.undercutOnlyPlanes(S.prog);
   for (const pl of S.prog.planes) {
     if (!S.sims.has(pl.id)) continue;
+    if (pl.id !== 0 && hideUndercutOnly.has(pl.id)) continue;
     let stock;
     if (pl.id === 0) stock = STOCK;
     else {

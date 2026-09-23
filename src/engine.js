@@ -337,24 +337,21 @@ const NC = (() => {
       const holder = ct.holderId ? parsed.holders.get(ct.holderId) : null;
       if (holder && holder.segments.length) {
         const hk = holder.unit === 'UI' ? 25.4 : 1;
-        // Segment ARRAY ORDER is tool-end-first (matching what holderSegments()/makeToolGroup()
-        // walk: d0 at the tool side, d1 toward the spindle). WITHIN each segment the file's first
-        // column ("upperDia", = the post's holder.getDiameter(i)) is the TOOL-side diameter and
-        // the second ("lowerDia", = getDiameter(i-1)) is the spindle-side one - i.e. Fusion
-        // indexes holder sections spindle-end-first, so the post's `for (i = n-1; i > 0; i--)`
-        // loop emits them tool-end-first with the higher index (nearer the tool) written first.
+        // WITHIN each segment, d0=upperDia/d1=lowerDia (file column order, unchanged) is right:
+        // decided by measuring profile continuity on all three real holders in
+        // fixtures/cimco/O1224.setup - a real holder is continuous except at genuine shoulders,
+        // and this pairing leaves only 6 of 24 junctions broken (real steps, e.g. H85's 1.25in
+        // collet nose -> 1.73in nut), where the reverse pairing broke all 24.
         //
-        // Decided by measuring profile continuity on all three real holders in
-        // fixtures/cimco/O1224.setup, not by reading docs: a real holder is continuous except at
-        // genuine shoulders, so the correct mapping should leave almost every segment junction
-        // matching. d0=upperDia breaks 6 of 24 junctions across those holders; the reverse
-        // (d0=lowerDia, shipped previously) breaks 24 of 24 - every single junction - which is
-        // exactly the "jagged around the larger diameter" artifact that was reported. The 6
-        // remaining breaks are real steps (1.25in collet nose -> 1.73in nut, 1.73in -> 1.93in
-        // body). With this mapping H85 "NBT30-SK20C-90" reads as a textbook BT30 collet chuck:
-        // 1.25 nose, step to the nut, a symmetric wrench groove (1.811 -> 1.4961 -> 1.811), then
-        // a step up to a 1.9291 body for the long 2.48in run back to the spindle.
-        t.holderSegs = holder.segments.map(s => ({ h: s.length * hk, d0: s.upperDia * hk, d1: s.lowerDia * hk }));
+        // But the ARRAY ORDER that continuity check couldn't settle: reversing the whole array
+        // AND swapping which column is d0/d1 preserves every one of those junctions exactly
+        // (it's a mirror, not a rewrite), so continuity alone can't tell tool-end-first from
+        // spindle-end-first. The previous version guessed tool-end-first from an unverified read
+        // of the post's loop direction. John compared a real posted job's probe holder against
+        // Fusion's own render on 2026-09-22 and confirmed that guess was backwards - the holder
+        // was mirrored end-to-end (a flange that belongs near the spindle end was rendering next
+        // to the tool). Flipped here: array reversed, d0/d1 swapped to match.
+        t.holderSegs = holder.segments.slice().reverse().map(s => ({ h: s.length * hk, d0: s.lowerDia * hk, d1: s.upperDia * hk }));
         t.holderName = holder.name;
         t.holderD = Math.max(...t.holderSegs.map(s => Math.max(s.d0, s.d1)));
         t.holderH = t.holderSegs.reduce((a, s) => a + s.h, 0);
@@ -943,6 +940,28 @@ const NC = (() => {
     return { alignedIds, obliqueIds, signOf };
   }
 
+  // Stopgap for undercut tools (T-slot/dovetail/lollipop) on their own tilted plane: a plane whose
+  // moves are cut by ONLY undercut tools never shows any material removed at all (cutMove already
+  // no-ops for them), so its separate stock slab just sits there unchanged for the whole program -
+  // not wrong, but reads as broken. Returns the set of plane ids where every tool touching that
+  // plane is an undercut tool, so the caller can skip drawing a shape it knows is always going to
+  // look untouched. The real fix (an undercut tool actually removing material) needs a different
+  // stock representation - see docs/NOTES.md and [[project-3plus2-and-undercut-tools]] - this is
+  // just "don't show a slab we know is a lie."
+  function undercutOnlyPlanes(P) {
+    const byNo = new Map(P.tools.map(t => [t.no, t]));
+    const allUndercut = new Map();
+    for (let i = 0; i < P.n; i++) {
+      const pid = P.PL[i], t = byNo.get(P.TL[i]);
+      const ok = !!(t && t.undercut);
+      if (allUndercut.has(pid)) { if (!ok) allUndercut.set(pid, false); }
+      else allUndercut.set(pid, ok);
+    }
+    const out = new Set();
+    for (const [pid, ok] of allUndercut) if (ok) out.add(pid);
+    return out;
+  }
+
   // Express every move's endpoint in one shared world frame via its own plane's origin/matrix.
   // Deliberately returns no PL field: cutMove's plane-boundary guard (see cutMove above) exists
   // only because buildPlaneSims' per-plane local sims have no valid cross-plane "from" point -
@@ -1305,7 +1324,7 @@ const NC = (() => {
 
   return { parseProgram, completeTool, simTool, prof, holderSegments, applyLibrary, typeFromText, parseSetupCsv, applyCsvTools, unzipText, guessFromName,
            HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti,
-           planeAxisWorld, classifyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel,
+           planeAxisWorld, classifyPlanes, undercutOnlyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel,
            parseStlBinary, parseCimcoSetup, applyCimcoTools, cimcoToFloorsimSetup,
            meshFromHeightArray, transformPoints, seedHeightSim,
            demoProgram, stressProgram, RAPID_MMPM };

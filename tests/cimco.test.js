@@ -87,6 +87,17 @@ const fixtureBuf = fs.readFileSync(path.join(DIR, 'O1224_FIXTURE.stl'));
   ok(!!t45.holderSegs && t45.holderSegs.length === 9, 'T45 got real holder segments from the CIMCO holder database');
   const t85 = real.tools.find(t => t.no === 85);
   ok(near(t85.D, 12.7) && t85.type === 'bull' && near(t85.rc, 0.762), `T85 (real "1/2 .5 BULL R.03" tool) matches its own name: D=${t85.D} type=${t85.type} rc=${t85.rc}`);
+
+  // Holder H85 ("NBT30-SK20C-90"): profile must stay continuous except at its 2 real shoulders
+  // (1.25in nose -> 1.73in nut, 1.73in nut -> 1.93in body), and - fixed 2026-09-22 after John
+  // compared a real probe holder against Fusion and found it mirrored end-to-end - the segment
+  // nearest the tool (index 0) must be the long 1.93in body run, not the 1.25in nose.
+  const segs = t85.holderSegs, mm = 25.4, near2 = (a, b, eps = 0.01) => Math.abs(a - b) < eps;
+  let breaks = 0;
+  for (let i = 0; i < segs.length - 1; i++) if (!near2(segs[i].d1, segs[i + 1].d0)) breaks++;
+  ok(segs.length === 9 && breaks === 2, `H85 profile continuous except at its 2 real shoulders, got ${segs.length} segments, ${breaks} breaks`);
+  ok(near2(segs[0].d0, 1.9291 * mm) && near2(segs[0].h, 2.4803 * mm), `segs[0] (nearest the tool) is the long 1.9291in body run, got d0=${segs[0].d0} h=${segs[0].h}`);
+  ok(near2(segs[8].d1, 1.25 * mm), `segs[8] (nearest the spindle) ends at the 1.25in nose diameter, got ${segs[8].d1}`);
   const t52 = real.tools.find(t => t.no === 52);
   ok(t52.type === 'chamfer' && near(t52.tip, 90, 0.01), `T52 chamfer angle resolves to ~90deg from the post's radian field, got ${t52.tip}`);
 }

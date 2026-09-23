@@ -28,6 +28,22 @@ const real = NC.parseProgram(fs.readFileSync(path.join(__dirname, '..', 'fixture
   ok(!cls.signOf.has(7), 'plane 7 (the oblique one) has no signed-axis assignment');
 }
 
+/* ---------- undercutOnlyPlanes: the "hide a slab that never changes" stopgap ---------- */
+{
+  // Plane 7's only tool is T81, a real lollipop mill (undercut), so it should be the one and only
+  // undercut-only plane in this real job - every other plane mixes in at least one normal tool.
+  const hidden = NC.undercutOnlyPlanes(real);
+  ok(hidden.size === 1 && hidden.has(7), `plane 7 (lollipop-only) is the one undercut-only plane, got ${[...hidden]}`);
+
+  // A plane mixing an undercut tool with a normal one must NOT be hidden - only an all-undercut
+  // plane reads as "nothing will ever be shown cut here".
+  const mixed = { n: 2, PL: [0, 0], TL: [1, 2], tools: [{ no: 1, undercut: true }, { no: 2, undercut: false }] };
+  ok(NC.undercutOnlyPlanes(mixed).size === 0, 'a plane with at least one normal tool is never hidden');
+
+  const allUndercut = { n: 2, PL: [3, 3], TL: [1, 1], tools: [{ no: 1, undercut: true }] };
+  ok(NC.undercutOnlyPlanes(allUndercut).size === 1, 'a plane touched only by undercut tools is hidden');
+}
+
 /* ---------- ground-truth: synthetic job with a hand-computable expected shape ----------
    Three single-pass channel cuts: base (Z+, ordinary case), and two planes sharing the world X
    axis with OPPOSITE sign (I90/J90/K0 -> axis +X, I-90/J90/K0 -> axis -X - the exact real angle

@@ -1,9 +1,11 @@
 // Phase 3 visual verification: loads the real O1224 job (7 aligned planes + 1 real oblique one)
 // in real Chromium via Playwright, not jsdom, and confirms something real is drawn - for a human
 // to look at tests/.tmp/screenshots/tridexel-o1224.png and judge: one connected, fixtured solid
-// for the 7 aligned planes, one separate mesh for the oblique plane (id 7), no obvious phantom
-// gouges or disconnected floating pieces. Same fixture stand-in used elsewhere in this project's
-// tri-dexel tests (O1224 has no fixture export of its own - see docs/plan and tridexelPage.test.js).
+// for the 7 aligned planes, no obvious phantom gouges or disconnected floating pieces. The oblique
+// plane (id 7) draws nothing at all - its only tool (T81, a lollipop mill) is an undercut tool, so
+// stock removal is always skipped there and the stopgap (2026-09-22) is to not draw that eternally-
+// unchanged slab. Same fixture stand-in used elsewhere in this project's tri-dexel tests (O1224 has
+// no fixture export of its own - see docs/plan and tridexelPage.test.js).
 const path = require('path'), fs = require('fs');
 const ROOT = path.join(__dirname, '..');
 const { chromium } = require('playwright');
@@ -46,7 +48,10 @@ const ok = (c, m) => { if (!c) { fails++; console.log('FAIL', m); } else console
   });
   ok(state.triMeshes === 1, `real browser: TRI_ROOT has exactly one mesh, got ${state.triMeshes}`);
   ok(state.triTris > 0, `real browser: fused mesh has real triangles (${state.triTris})`);
-  ok(state.tiltChildren === 1, `real browser: TILT_ROOT has exactly one child (the oblique plane), got ${state.tiltChildren}`);
+  // Plane 7 (the oblique one) is cut only by T81, a lollipop mill - an undercut tool, so stock
+  // removal is always skipped there. Its slab would never visibly change, so it's not drawn at all
+  // (stopgap, 2026-09-22) - see tridexelPage.test.js and NOTES.md for the full reasoning.
+  ok(state.tiltChildren === 0, `real browser: TILT_ROOT is empty - plane 7 is undercut-only and hidden, got ${state.tiltChildren}`);
   ok(state.fixtureBodies === 45, `real browser: 45 workholding bodies drawn, got ${state.fixtureBodies}`);
 
   // canvas actually drew something real - same read-pixels-right-after-a-forced-render pattern as

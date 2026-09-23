@@ -48,13 +48,36 @@ const ready = async () => { await sleep(300); for (let i = 0; i < 600 && !w.__fl
   const triTris = triMeshes.length ? triMeshes[0].geometry.index.count / 3 : 0;
   ok(triTris > 0, `the fused mesh has real triangles (${triTris})`);
 
-  ok(F.TILT_ROOT.children.length === 1, 'TILT_ROOT has exactly one child (the one oblique plane, id 7), got ' + F.TILT_ROOT.children.length);
-  ok(S.planes.size === 1 && S.planes.has(7), 'S.planes holds only the oblique plane (id 7): ' + [...S.planes.keys()]);
+  // Plane 7's only tool is T81, a lollipop mill (undercut) - stock removal is always skipped for
+  // it, so its separate slab never visibly changes. Drawing an eternally-untouched block reads as
+  // broken rather than merely unsimulated, so the stopgap (2026-09-22) is to not draw it at all -
+  // the toolpath still plays, there's just no stock shape for that plane. See NOTES.md.
+  ok(F.TILT_ROOT.children.length === 0, 'TILT_ROOT is empty - plane 7 is undercut-only, so its stock is not drawn, got ' + F.TILT_ROOT.children.length);
+  ok(S.planes.size === 0, 'S.planes holds nothing - the only oblique plane (id 7) is undercut-only and hidden: ' + [...S.planes.keys()]);
+  ok(S.sims.has(7), 'plane 7 is still simulated under the hood (just not drawn) - S.sims still has it');
   ok(F.STOCK.group.visible === false, 'the base-plane STOCK mesh is hidden - TRI_ROOT covers plane 0 now');
 
   // cimcoToFloorsimSetup emits ONE fixture entry (the whole real FIXTURE.stl as a single merged
   // mesh, 117,870 real triangles), unlike the older Fusion export's per-body fixtures[] array.
   ok(F.fixScene.children.length === 1, 'the real FIXTURE.stl is drawn as one mesh, got ' + F.fixScene.children.length);
+
+  // ---- oblique plane 7's own box must not visibly overshoot the real stock box in world space.
+  // boxFromMoves pads a tilted plane's own move extents (there's normally no real stock shape for
+  // a tilted face), but that padding is applied in the plane's own local frame - on a steep tilt
+  // like this real ~80deg plane, a 5mm local pad projects into a much bigger world displacement
+  // (measured: 5.8mm past the real wall). John spotted the resulting phantom block on 2026-09-22.
+  // Once a real stock box IS known (as here), the pad drops to 0.5mm - this pins that it stays
+  // within about 1mm of the real wall, not the old ~6mm.
+  {
+    const pl7 = S.prog.planes.find(p => p.id === 7), m = pl7.matrix, o = pl7.origin, box7 = S.sims.get(7).box;
+    const real = S.setup.stock;
+    let xmax = -Infinity;
+    for (const x of [box7.xmin, box7.xmax]) for (const y of [box7.ymin, box7.ymax]) for (const z of [box7.zbot, box7.ztop]) {
+      const wx = o[0] + m[0][0] * x + m[0][1] * y + m[0][2] * z;
+      if (wx > xmax) xmax = wx;
+    }
+    ok(xmax < real.xmax + 1, `plane 7's box stays within ~1mm of the real stock's X wall (${real.xmax.toFixed(2)}), got world xmax ${xmax.toFixed(2)}`);
+  }
 
   // ---- tool model worldization: position AND orientation must reflect the move's real plane,
   // not the raw local coordinates updateTool() used to render directly. Drive playback to a real
@@ -156,12 +179,14 @@ const ready = async () => { await sleep(300); for (let i = 0; i < 600 && !w.__fl
   ok(!probeThrew, 'clicking off the part does not crash');
   ok(pb.hidden, 'probe popup hides on a miss, same as the single-plane path');
 
-  // ---- the oblique plane (id 7, rendered only via TILT_ROOT) stays structurally unprobable:
-  // pickAtTri only ever raycasts TRI_ROOT's own mesh, so it cannot report tri-dexel provenance for
-  // a point that was never part of that mesh. Click toward plane 7's own local origin to confirm
+  // ---- the oblique plane (id 7, undercut-only and not drawn at all - see above) stays
+  // structurally unprobable: pickAtTri only ever raycasts TRI_ROOT's own mesh, so it cannot report
+  // tri-dexel provenance for a point that was never part of that mesh. Click toward plane 7's own
+  // origin (S.planes has no entry for it now, so read straight from the program's own plane data,
+  // the same origin rebuild() would have positioned its stock group at if it drew one) to confirm
   // this in practice, not just by code inspection.
-  const pl7 = S.planes.get(7);
-  const [ox, oy] = project(pl7.stock.group.position.x, pl7.stock.group.position.y, pl7.stock.group.position.z);
+  const pl7def = S.prog.planes.find(p => p.id === 7);
+  const [ox, oy] = project(pl7def.origin[0], pl7def.origin[1], pl7def.origin[2]);
   let obliqueThrew = false;
   try { fire('pointerdown', ox, oy); fire('pointerup', ox, oy); } catch (e) { obliqueThrew = true; console.log('oblique-plane probe threw:', e.message); }
   ok(!obliqueThrew, 'clicking near the oblique plane (id 7) does not crash');
