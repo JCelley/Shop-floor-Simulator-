@@ -1,0 +1,5 @@
+# Generated output - regenerate with run-o1160.js / run-o1224.js / screenshot*.js.
+# out-o1160-* in particular is derived from real customer job data pulled live from the
+# shared drive and must never be committed.
+out-*.json
+out-*.png
