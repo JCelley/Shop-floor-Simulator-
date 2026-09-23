@@ -109,7 +109,36 @@ function fusePlanesToWorldGrid(planes, box, target, iters) {
       contributors[j * nx + i] = bestK;
     }
   }
+  fillIsolatedGaps(out, contributors, nx, ny);
   return { nx, ny, dx, dy, x0: box.xmin, y0: box.ymin, zTop: box.ztop, zBot: box.zbot, h: out, contributors };
 }
 
-module.exports = { sampleHeightSim, rayInLocal, crossingWorldZ, fusePlanesToWorldGrid };
+// A single cell right at the edge of a plane's padded box can fall just outside every
+// plane's coverage (see NOTES.md - a real one found in O1160 at a corner) while every
+// neighbour is genuinely covered. That's a boundary-padding shortfall, not a real "nothing
+// was ever cut here" region, so patch it to the shallowest of its covered neighbours rather
+// than leaving it at the untouched stock top. Deliberately NOT iterative/flood-fill: only a
+// cell with at least 3 of 4 covered neighbours gets patched, so a genuinely large untouched
+// area (a real corner of stock nothing ever reaches) is left alone.
+function fillIsolatedGaps(out, contributors, nx, ny) {
+  const gaps = [];
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const idx = j * nx + i;
+    if (contributors[idx] !== -1) continue;
+    let covered = 0, minNb = Infinity;
+    // column-aware: i>0/i<nx-1 guards stop left/right from wrapping into the next/previous row
+    const nbs = [];
+    if (i > 0) nbs.push(idx - 1);
+    if (i < nx - 1) nbs.push(idx + 1);
+    if (j > 0) nbs.push(idx - nx);
+    if (j < ny - 1) nbs.push(idx + nx);
+    for (const n of nbs) {
+      if (contributors[n] !== -1) { covered++; if (out[n] < minNb) minNb = out[n]; }
+    }
+    if (covered >= 3) gaps.push([idx, minNb]);
+  }
+  for (const [idx, v] of gaps) out[idx] = v; // apply after the scan so patches don't cascade
+  return gaps.length;
+}
+
+module.exports = { sampleHeightSim, rayInLocal, crossingWorldZ, fusePlanesToWorldGrid, fillIsolatedGaps };

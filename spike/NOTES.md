@@ -55,14 +55,21 @@ core math (two tilted planes, expected crossing computed independently by hand, 
   Resulting shape still came out coherent - one connected part, no gaps - matching the
   known-good production render structurally.
 
-**Known rough edge, understood not fixed:** one grid cell at a plane-box corner in O1160
-came out nearly untouched (spiked up to ~88mm) while every neighbour was correctly cut down
-to ~71mm - `diagnose-spike.js` finds it at world (45.07, 22.4), right at the edge of a
-plane's padded box (5mm pad, same value implicated in the earlier holder/padding fixes on
-the main branch). One plane's box falls just short of covering that corner and nothing else
-picks it up, so it defaults to "untouched". Fixable (slightly larger pad, or a neighbour-fill
-pass for isolated single-cell gaps) but not chased down further here - the point of this
-spike was proving the approach, not polishing it.
+**Known rough edge, re-diagnosed, still not fixed:** one grid cell in O1160 came out nearly
+untouched (~88mm) while every neighbour was correctly cut to ~65-72mm - `diagnose-spike.js`
+finds it at world (45.07, 22.4). First guess was "no plane covers this column at all", so
+`fillIsolatedGaps` was added (patches a single truly-uncovered cell to its covered
+neighbours' shallowest value when >=3 of its 4 neighbours ARE covered) and tested
+(`test-fuse-synthetic.js`) - but re-running it against O1160 proved that guess WRONG: the
+cell's contributor is plane 0 (the base plane), not "nobody". Plane 0 legitimately reports a
+shallow ~88mm there while a neighbouring oblique plane (3) - which clearly cuts the
+surrounding cells down to ~65-72mm - simply doesn't win at this one column, most likely
+because plane 3's own padded box falls just short of reaching this exact corner. So this
+isn't a coverage gap the neighbour-fill can catch; it's two planes' boundaries both landing
+just shy of one shared corner. `fillIsolatedGaps` is still a real, tested safety net for the
+"nobody covers this at all" case (which does happen and is fixed), but this specific
+artifact needs either wider per-plane padding at real box boundaries or a smarter boundary
+reconciliation - left as an open, precisely-diagnosed question rather than papered over.
 
 **This is meaningfully lower-risk than "the big rewrite" people were bracing for** - it
 doesn't touch cutting math (`HeightSim.cut`, `cutMove`) at all, only adds a display-time

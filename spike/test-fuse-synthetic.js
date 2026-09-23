@@ -4,7 +4,7 @@
 // point can be computed by hand from local = M^T * (world - origin) and checked against what
 // crossingWorldZ actually returns.
 'use strict';
-const { crossingWorldZ, fusePlanesToWorldGrid } = require('./fuse.js');
+const { crossingWorldZ, fusePlanesToWorldGrid, fillIsolatedGaps } = require('./fuse.js');
 let fails = 0;
 const ok = (c, m) => { if (!c) { fails++; console.log('FAIL', m); } else console.log('ok  ', m); };
 const near = (a, b, eps = 1e-3) => Math.abs(a - b) < eps;
@@ -55,6 +55,27 @@ const farBox = { xmin: 1000, xmax: 1002, ymin: 1000, ymax: 1002, zbot: -50, ztop
 const noSim = constSim2(5, 1); // a tiny box, nowhere near (1001,1001)
 const fusedFar = fusePlanesToWorldGrid([{ matrix: planeA.matrix, origin: planeA.origin, sim: noSim }], farBox, 4, 40);
 ok(fusedFar.h.every(v => v === farBox.ztop), 'a column no plane reaches stays at the untouched stock top, not zbot');
+
+// ---- fillIsolatedGaps: a single uncovered cell surrounded by covered neighbours gets
+// patched to their shallowest value; a genuinely large untouched region is left alone.
+{
+  const nx = 3, ny = 3;
+  // layout (contributors): all covered (0) except the centre (-1, a boundary shortfall)
+  const contrib = new Int32Array([0, 0, 0, 0, -1, 0, 0, 0, 0]);
+  // centre (idx 4) untouched (100); its 4 orthogonal neighbours are idx 1,3,5,7 - idx7 is the
+  // deepest (40), the other three are 50 - idx8 (40 here) is diagonal, NOT a neighbour, and
+  // must be ignored by the fill.
+  const h = new Float32Array([50, 50, 50, 50, 100, 50, 50, 40, 50]);
+  const n = fillIsolatedGaps(h, contrib, nx, ny);
+  ok(n === 1 && h[4] === 40, `isolated single-cell gap patched to the shallowest covered neighbour (40), got ${h[4]} (patched ${n})`);
+
+  // a real 2x2 untouched block (each cell has only 2 covered neighbours, not >=3) must be left alone
+  const contrib2 = new Int32Array([0, 0, 0, -1, -1, 0, -1, -1, 0]);
+  const h2 = new Float32Array([50, 50, 50, 100, 100, 50, 100, 100, 50]);
+  const n2 = fillIsolatedGaps(h2, contrib2, nx, ny);
+  ok(n2 === 0 && h2[3] === 100 && h2[4] === 100 && h2[6] === 100 && h2[7] === 100,
+    `a real, larger untouched region (each gap cell has <3 covered neighbours) is NOT patched, got ${n2} patches`);
+}
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);
