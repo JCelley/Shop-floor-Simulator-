@@ -79,13 +79,31 @@ height number can never represent. All hand-computed expected values matched exa
 This is a real, separate rewrite (touches the cutting math itself, not just display), and
 per [[feedback-isolate-risky-engine-experiments]] is exactly the kind of change that
 shouldn't land on the working build until proven - which is as far as this spike proves it
-so far. Not yet run against a real job (O1224's real T81 lollipop data would be the next
-step) or checked for performance at real move counts - the synthetic sampling approach
-(union many stationary samples along a move) is a simplification that may need to be
-faster/more exact for real jobs with tens of thousands of moves.
+so far.
+
+**Performance check (`perf-multidexel.js`) - this is the real open problem, not a detail.**
+T81's real usage in O1224 is only 302 moves (too small to stress-test). Built a synthetic
+raster instead: 133 full-width moves over a 360x240 grid. Result: 287ms at 2 samples/move,
+693ms at 6 samples/move - roughly **2-5ms per move**. The real engine's existing analytic
+`HeightSim.cut` handles O1224's 71,984 moves in under a second (a small fraction of a
+millisecond per move) because it solves for the exact swept envelope directly instead of
+sampling many stationary tool positions along each move and unioning the results. At 2-5ms/
+move, a real job with tens of thousands of moves would take tens of seconds to minutes -
+not usable as-is. This sampling approach is correct but was written to prove the
+*representation* (multi-interval columns can hold an overhang), not to be fast. Making it
+fast enough for real use would mean real analytic swept-volume math for a non-monotonic
+profile (materially harder than HeightSim.cut's convex-profile case), or restricting the
+expensive multi-interval treatment to only the specific tool passes that need it (most of a
+job's moves aren't undercut tools at all) rather than running every column through it.
 
 ## Recommendation
 Bring problem 2's fusion approach back to John as a candidate near-term fix for O1160 -
-it's small, tested, doesn't touch proven cutting code, and the numbers are good. Problem 1
-(undercuts) needs more work (real-job testing, performance at scale) before it's a real
-proposal, but the core representation is proven to work.
+it's small, tested, doesn't touch proven cutting code, and the numbers are good today, as
+measured, on real jobs.
+
+Problem 1 (undercuts) is a different story: the REPRESENTATION is proven correct (a column
+really can hold material on both sides of a removed band), but the performance numbers say
+the current implementation is 10-1000x too slow for real move counts, and closing that gap
+needs real swept-volume geometry work, not a tuning pass. This is genuinely the bigger,
+riskier half of "the rewrite" - accurate to keep it isolated and not treat it as close to
+done just because the concept works.
