@@ -1010,10 +1010,19 @@ const NC = (() => {
   // grids (Map<signedKey,HeightSim>), views (Map<signedKey,{X,Y,Z,K,TL,OP,init}> - the same
   // permuted per-grid move data cutMove expects), keyOfMove (per-move signed key, or null for an
   // oblique-plane move), plus the classification result and the shared world box itself.
-  function buildTriDexel(P, target, pad, box0) {
+  function buildTriDexel(P, target, pad, box0, tolDeg) {
     if (pad == null) pad = 5;
     const w = worldizeMoves(P);
-    const cls = classifyPlanes(P.planes);
+    // tolDeg is a SPIKE-ONLY escape hatch (default keeps today's behavior: classifyPlanes' own
+    // tiny 0.01deg tolerance, real axis-aligned planes only). Passing a large value (up to ~55,
+    // the worst case for "which world axis is closest") snaps EVERY plane to its nearest signed
+    // axis instead of leaving non-aligned ones for the separate buildPlaneSims/fusion path - see
+    // spike/NOTES3.md for why: a single fixed-axis world grid is categorically wrong for a tool
+    // whose real axis is far from that grid's axis (it can delete real material far above a cut,
+    // not just round a corner), so tolerant snapping onto tri-dexel's EXISTING per-axis grids
+    // (each with the geometry already exactly right for THAT axis) is the safer generalization,
+    // not a new single-grid representation.
+    const cls = classifyPlanes(P.planes, tolDeg);
     const { alignedIds, obliqueIds, signOf } = cls;
     const n = P.n;
     const keyOfMove = new Array(n).fill(null);
