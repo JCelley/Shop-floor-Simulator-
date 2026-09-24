@@ -62,24 +62,37 @@ const gridShape = { nx: nxg, ny: nyg, dx: gdx, dy: gdy, x0: gx0, y0: gy0 };
 const simMesh = { pos, idx };
 const simBins = binTriangles(simMesh, gridShape);
 const partBins = binTriangles(partMesh, gridShape);
-let count = 0, sumAbs = 0, maxAbs = 0, maxAt = null;
-const HIST = [0, 0, 0, 0, 0];
-for (let j = 0; j < nyg; j++) {
-  const py = gy0 + (j + 0.5) * gdy;
-  for (let i = 0; i < nxg; i++) {
-    const px = gx0 + (i + 0.5) * gdx;
-    const real1 = partHeightAt(partMesh, partBins, gridShape, i, j, px, py);
-    if (real1 === null) continue;
-    const sim1 = partHeightAt(simMesh, simBins, gridShape, i, j, px, py);
-    if (sim1 === null) continue; // sim mesh doesn't cover here (e.g. outside the fused box) - treat as "no data" like before, not a silent 0
-    const e = sim1 - real1;
-    count++; const ae = Math.abs(e); sumAbs += ae; if (ae > maxAbs) { maxAbs = ae; maxAt = [px, py, sim1, real1]; }
-    if (ae < 0.2) HIST[0]++; else if (ae < 1) HIST[1]++; else if (ae < 3) HIST[2]++; else if (ae < 10) HIST[3]++; else HIST[4]++;
+
+// O1160 is a first ("Op 50") setup: the vise legitimately holds a section of stock this program
+// never touches, which shows up as sim > real (sim correctly has MORE material than the finished
+// design - a later op removes it, not this one). That's not a defect. Report BOTH numbers -
+// raw (everything counted) and held-stock-excluded (only sim < real, real over-cuts, counted) -
+// side by side rather than silently picking one, since whether the exclusion is right depends on
+// the job (an Op 60/finishing job should NOT get this treatment - see compareToPart.js).
+function run(ignoreHeldStock) {
+  let count = 0, sumAbs = 0, maxAbs = 0, maxAt = null, excludedHeldStock = 0;
+  const HIST = [0, 0, 0, 0, 0];
+  for (let j = 0; j < nyg; j++) {
+    const py = gy0 + (j + 0.5) * gdy;
+    for (let i = 0; i < nxg; i++) {
+      const px = gx0 + (i + 0.5) * gdx;
+      const real1 = partHeightAt(partMesh, partBins, gridShape, i, j, px, py);
+      if (real1 === null) continue;
+      const sim1 = partHeightAt(simMesh, simBins, gridShape, i, j, px, py);
+      if (sim1 === null) continue; // sim mesh doesn't cover here (e.g. outside the fused box) - treat as "no data" like before, not a silent 0
+      const e = sim1 - real1;
+      if (ignoreHeldStock && e > 0) { excludedHeldStock++; continue; }
+      count++; const ae = Math.abs(e); sumAbs += ae; if (ae > maxAbs) { maxAbs = ae; maxAt = [px, py, sim1, real1]; }
+      if (ae < 0.2) HIST[0]++; else if (ae < 1) HIST[1]++; else if (ae < 3) HIST[2]++; else if (ae < 10) HIST[3]++; else HIST[4]++;
+    }
   }
+  console.log(`=== O1160 (snap-to-axis tri-dexel) vs real PART.stl ${ignoreHeldStock ? '[held-stock excluded, sim<real only]' : '[raw, all columns]'} ===`);
+  console.log('compared columns:', count, '/', nxg * nyg, ignoreHeldStock ? `(excluded as expected held stock: ${excludedHeldStock})` : '');
+  console.log('mean abs error (mm):', (sumAbs / count).toFixed(3));
+  console.log('max abs error (mm):', maxAbs.toFixed(3), 'at', maxAt);
+  console.log('error histogram: <0.2mm', HIST[0], '| <1mm', HIST[1], '| <3mm', HIST[2], '| <10mm', HIST[3], '| >=10mm', HIST[4]);
+  console.log(`  as %% of compared columns: ${HIST.map(v => (100 * v / count).toFixed(1) + '%').join(', ')}`);
 }
-console.log('=== O1160 (snap-to-axis tri-dexel) vs real PART.stl ===');
-console.log('compared columns:', count, '/', nxg * nyg);
-console.log('mean abs error (mm):', (sumAbs / count).toFixed(3));
-console.log('max abs error (mm):', maxAbs.toFixed(3), 'at', maxAt);
-console.log('error histogram: <0.2mm', HIST[0], '| <1mm', HIST[1], '| <3mm', HIST[2], '| <10mm', HIST[3], '| >=10mm', HIST[4]);
-console.log(`  as %% of compared columns: ${HIST.map(v => (100 * v / count).toFixed(1) + '%').join(', ')}`);
+run(false);
+console.log();
+run(true);

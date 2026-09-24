@@ -53,12 +53,24 @@ function partHeightAt(partMesh, bins, grid, i, j, px, py) {
 
 // Compare a sim grid ({nx,ny,dx,dy,x0,y0,h}) against the real part mesh. Returns per-column
 // stats and a signed-error array (sim - real; positive = sim left MORE material than the real
-// part has there, i.e. under-cut; negative = sim removed too much, i.e. over-cut/gouge).
-function compareToPart(grid, partMesh) {
+// part has there; negative = sim removed too much, i.e. a real over-cut/gouge).
+//
+// opts.ignoreHeldStock (default false): on a real first ("Op 50") setup, the vise holds the
+// part by a section of raw stock that this op physically cannot reach - how much varies job to
+// job (more vise clearance = more leftover). That shows up here as sim > real (the sim
+// correctly has MORE material than the finished design, because a LATER op/setup - not this
+// NC program - removes it). That is NOT a defect and must not be scored as one. It is NOT
+// universal, though: a finishing op ("Op 60") on an already-held part can legitimately leave
+// nothing behind, so this is opt-in per comparison, not a blanket default. When true, a
+// positive (sim > real) column is excluded from the error stats entirely rather than scored -
+// only sim < real (an actual over-cut relative to the finished design) still counts as a
+// failure, since that direction is never legitimate regardless of setup/op number.
+function compareToPart(grid, partMesh, opts) {
+  opts = opts || {};
   const bins = binTriangles(partMesh, grid);
   const n = grid.nx * grid.ny;
-  const err = new Float32Array(n).fill(NaN); // NaN where the real part doesn't cover this column at all
-  let count = 0, sumAbs = 0, maxAbs = 0, maxAbsAt = null;
+  const err = new Float32Array(n).fill(NaN); // NaN where the real part doesn't cover this column, OR where a positive error was excluded as expected held stock
+  let count = 0, sumAbs = 0, maxAbs = 0, maxAbsAt = null, excludedHeldStock = 0;
   const HIST = [0, 0, 0, 0, 0]; // <0.2mm, <1mm, <3mm, <10mm, >=10mm
   for (let j = 0; j < grid.ny; j++) {
     const py = grid.y0 + (j + 0.5) * grid.dy;
@@ -68,6 +80,7 @@ function compareToPart(grid, partMesh) {
       if (real === null) continue;
       const idx = j * grid.nx + i;
       const e = grid.h[idx] - real;
+      if (opts.ignoreHeldStock && e > 0) { excludedHeldStock++; continue; }
       err[idx] = e;
       count++;
       const ae = Math.abs(e);
