@@ -32,6 +32,14 @@ function triSolid(grid, axisIdx, sign, wx, wy, wz) {
 // axis permutation. sim.h/zBot are in the plane's own LOCAL frame (boxFromMoves' box, matching how
 // buildPlaneSims/cutMoveMulti already cut into it) - transform the world test point into that
 // local frame first (local = M^T . (world - origin), valid since M is a rotation matrix).
+//
+// CLIPPING FIX: boxFromMoves sizes a plane's box to its own moves' bounding box, which for a
+// perimeter/rim pass can span nearly the whole part even though the pass only actually cuts a
+// thin band within that box. Cells the plane's own cutMove never touched are still at their
+// initial value (op===0, HeightSim.reset()'s marker) and must NOT be trusted as "this plane says
+// empty here" - that was the bug (2.1M of 10.2M O1160 voxels wrongly excluded by plane 1 alone).
+// Only a cell this plane's real moves actually cut (op!==0) gets to assert anything; everywhere
+// else, same as outside its box, it has no opinion.
 function obliqueSolid(sim, matrix, origin, wx, wy, wz) {
   const dx = wx - origin[0], dy = wy - origin[1], dz = wz - origin[2];
   const lx = matrix[0][0] * dx + matrix[1][0] * dy + matrix[2][0] * dz;
@@ -39,7 +47,9 @@ function obliqueSolid(sim, matrix, origin, wx, wy, wz) {
   const lz = matrix[0][2] * dx + matrix[1][2] * dy + matrix[2][2] * dz;
   const i = Math.floor((lx - sim.x0) / sim.dx), j = Math.floor((ly - sim.y0) / sim.dy);
   if (i < 0 || j < 0 || i > sim.nx - 1 || j > sim.ny - 1) return true;
-  const h = sim.h[j * sim.nx + i];
+  const idx = j * sim.nx + i;
+  if (sim.op[idx] === 0) return true; // never actually cut by this plane - no opinion
+  const h = sim.h[idx];
   const EPS = 1e-4;
   return lz <= h + EPS && lz >= sim.zBot - EPS;
 }

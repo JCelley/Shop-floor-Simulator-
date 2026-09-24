@@ -22,6 +22,17 @@ const TRI_FUSE_TARGET = 140, TRI_FUSE_LIVE = 80;
 // a ~4x slower Chromebook lands near 30%, which the existing "sim-limited" chip already surfaces
 // if the device genuinely can't keep up.
 const TRI_FUSE_MIN_MS = 150;
+// How far a plane's real tool axis may sit from a world axis and still join the shared tri-dexel
+// grids. Not 0 (classifyPlanes' own default is a near-zero 0.01deg, just enough to absorb
+// floating-point rounding on an exact 90deg multiple): real Fusion setups routinely produce
+// several "planes" that are the same physical vertical operation but differ by a degree or two of
+// floating-point noise, and sending those to the disconnected oblique fallback needlessly is both
+// slower (a whole extra HeightSim per "plane") and was the wrong lever entirely for the one job
+// that actually needed it. Not large either (round 3's spike tried 60deg - "snap anything closer
+// to this axis than any other"): that wrongly force-fit a real 14.66deg tilt into vertical-tool
+// math and produced a genuine ~20mm depth error - confirmed by tracing it to an exact plane/tool,
+// not a guess. 5deg cleanly separates the two cases on every real job measured (spike/NOTES3.md).
+const TRI_DEXEL_TOL_DEG = 5;
 
 const S = {
   prog: null, name: '', tools: [], simTools: new Map(), sim: null, sims: new Map(), planes: new Map(), snaps: [], finalH: null, finalOp: null,
@@ -734,7 +745,12 @@ function showPicker(list) {
 function restoreSnap(snap) {
   if (!snap) return;
   for (const [id, sim] of S.sims) sim.restore(snap.state.get(id));
-  if (S.td && snap.td) { for (const [key, grid] of S.td.grids) grid.restore(snap.td.get(key)); S.triDirty = true; }
+  // On a tri-dexel job, TRI_ROOT's fused mesh now ANDs in every oblique plane's own HeightSim
+  // (see refreshTriStock) - a scrub/restore that only touched S.sims (no td.grids change, e.g. a
+  // job whose tri-dexel grids happen to be untouched by this snapshot) must still mark it dirty,
+  // or the fused mesh would silently keep showing a stale oblique-plane shape after the restore.
+  if (S.triDexel) S.triDirty = true;
+  if (S.td && snap.td) { for (const [key, grid] of S.td.grids) grid.restore(snap.td.get(key)); }
 }
 
 // Re-extract TRI_ROOT's visible surface from the CURRENT (partially cut) grid state.
@@ -746,7 +762,10 @@ function refreshTriStock(live) {
   const now = performance.now();
   if (live && now - S.triFuseAt < TRI_FUSE_MIN_MS) return;   // throttle: cap live re-fuse rate
   if (!S.triDirty && S.triFuseLive === live) return;          // nothing changed and same quality
-  const { pos, idx } = NC.fuseTriDexel(S.td, live ? TRI_FUSE_LIVE : TRI_FUSE_TARGET);
+  // S.sims here holds exactly the oblique fallback plane(s) (see rebuild()) - ANDed into the same
+  // fused mesh via obliquePlaneSolid instead of being drawn as their own separate TILT_ROOT slabs.
+  const planeById = new Map(S.prog.planes.map(p => [p.id, p]));
+  const { pos, idx } = NC.fuseTriDexel(S.td, live ? TRI_FUSE_LIVE : TRI_FUSE_TARGET, S.sims, planeById);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setIndex(new THREE.BufferAttribute(idx, 1));
@@ -819,7 +838,7 @@ async function rebuild(fresh) {
   // Tri-dexel only kicks in once there's more than the trivial base plane worth sharing a world
   // frame for - a single-plane job (the common case) or a multi-plane job with nothing but the
   // base aligned takes exactly today's per-plane path, unchanged, at zero cost/regression risk.
-  const cls = NC.classifyPlanes(S.prog.planes);
+  const cls = NC.classifyPlanes(S.prog.planes, TRI_DEXEL_TOL_DEG);
   S.triDexel = cls.alignedIds.size > 1;
   // Same condition loadText() uses to pick stockFromSetup over autoStock() - reused here, not a
   // new flag. A tilted plane's own box (boxFromMoves) still needs padding around its moves when
@@ -838,10 +857,13 @@ async function rebuild(fresh) {
   if (S.triDexel) {
     // Prefer the real stock box when one was actually loaded - a real box is authoritative and
     // far tighter than deriving one from where moves happen to go.
-    S.td = NC.buildTriDexel(S.prog, S.res, 5, hasRealStock ? stockBox : undefined);
+    S.td = NC.buildTriDexel(S.prog, S.res, 5, hasRealStock ? stockBox : undefined, TRI_DEXEL_TOL_DEG);
     // Oblique planes (e.g. a real, non-90-degree G68.2 tilt) can't join the shared tri-dexel
     // frame - see docs/plan - so they still get their own HeightSim via the ordinary, unmodified
     // buildPlaneSims/cutMoveMulti path, restricted to just that subset via the new onlyIds param.
+    // cls uses the SAME TRI_DEXEL_TOL_DEG as buildTriDexel just above, so this stays exactly the
+    // complement of td's own aligned set - a mismatch here would double-cut a plane into both
+    // representations and draw it twice (once fused, once as its own separate slab below).
     S.sims = NC.buildPlaneSims(S.prog, stockBox, S.res, tiltPad, cls.obliqueIds);
   } else {
     S.td = null;
@@ -863,8 +885,13 @@ async function rebuild(fresh) {
   // one mesh-holder per plane: STOCK itself for the base plane (same object every rebuild, as
   // always), a fresh one per tilted plane positioned/rotated by that plane's own transform. On a
   // tri-dexel job S.sims only has the oblique fallback plane(s), so this loop naturally builds
-  // only those - plane 0 (and every other aligned plane) is covered by TRI_ROOT's fused mesh
-  // instead, built below.
+  // only those. Each one's OWN HeightSim (sim/S.planes) still gets built and kept up to date -
+  // worldPlaneBounds(), the chain-seed export, and the probe all still read it directly - but on a
+  // tri-dexel job its visible group is hidden below: TRI_ROOT's single fused mesh (buildTriDexel +
+  // fuseTriDexel, now ANDing every oblique plane's HeightSim in via obliquePlaneSolid) already
+  // covers the same material, in the same world frame, watertight against the aligned planes -
+  // showing both would double-draw it. See spike/NOTES3.md and spike/fusedpipeline.js for the
+  // investigation that made this safe (the oblique clipping fix).
   clearGroup(TILT_ROOT); clearGroup(TRI_ROOT);
   S.planes = new Map();
   // Stopgap for undercut-only tilted planes (e.g. a lollipop mill's own plane): that plane's stock
@@ -881,6 +908,7 @@ async function rebuild(fresh) {
       stock = { group: new THREE.Group() };
       stock.group.position.set(pl.origin[0], pl.origin[1], pl.origin[2]);
       stock.group.quaternion.copy(planeQuaternion(pl.matrix));
+      stock.group.visible = !S.triDexel;   // TRI_ROOT's fused mesh already covers this plane's material
       TILT_ROOT.add(stock.group);
     }
     const sim = S.sims.get(pl.id), fin = r.finals.get(pl.id);

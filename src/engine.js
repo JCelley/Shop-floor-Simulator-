@@ -1109,18 +1109,52 @@ const NC = (() => {
     return az <= h + EPS && az >= grid.zBot - EPS;
   }
 
+  // Same convention as triSampleSolid, generalized to an oblique plane's own real rotation
+  // matrix/origin (buildPlaneSims' local frame) instead of a world-axis permutation - transform
+  // the world test point into that local frame first (local = M^T . (world - origin), valid since
+  // M is a rotation matrix).
+  //
+  // CLIPPING: boxFromMoves sizes a plane's box to its own moves' bounding box, which for a
+  // perimeter/rim pass can span nearly the whole part even though the pass only actually cuts a
+  // thin band within that box. A cell the plane's own cutMove never touched is still at its
+  // initial value (op===0, HeightSim.reset()'s marker) and must NOT be trusted as "this plane
+  // says empty here" - only a cell this plane's real moves actually cut gets to assert anything;
+  // everywhere else, same as outside its box, it has no opinion. (Found and fixed during the
+  // 3+2/tri-dexel fusion spike - see spike/NOTES3.md and spike/fusedpipeline.js for the
+  // investigation: an unclipped version wrongly excluded ~20% of a real job's stock volume.)
+  function obliquePlaneSolid(sim, matrix, origin, wx, wy, wz) {
+    const dx = wx - origin[0], dy = wy - origin[1], dz = wz - origin[2];
+    const lx = matrix[0][0] * dx + matrix[1][0] * dy + matrix[2][0] * dz;
+    const ly = matrix[0][1] * dx + matrix[1][1] * dy + matrix[2][1] * dz;
+    const lz = matrix[0][2] * dx + matrix[1][2] * dy + matrix[2][2] * dz;
+    const i = Math.floor((lx - sim.x0) / sim.dx), j = Math.floor((ly - sim.y0) / sim.dy);
+    if (i < 0 || j < 0 || i > sim.nx - 1 || j > sim.ny - 1) return true;
+    const idx = j * sim.nx + i;
+    if (sim.op[idx] === 0) return true; // never actually cut by this plane - no opinion
+    const h = sim.h[idx];
+    const EPS = 1e-4;
+    return lz <= h + EPS && lz >= sim.zBot - EPS;
+  }
+
   // Boolean-AND every signed grid td has (a world point is solid only if every grid that has an
   // opinion still calls it solid - axes nobody actually cut along impose no constraint), then mesh
   // the result via culled voxel-face meshing: emit a quad only where a solid cell touches a
   // non-solid neighbour. Watertight by construction. Ships intentionally blocky (visible
   // stairstepping) - smoothing this into a proper isosurface is a deferred follow-up, not this
   // function's job. Returns {pos, idx} in the same shape meshFromHeightArray returns.
-  function fuseTriDexel(td, target) {
+  //
+  // obliqueSims/planeById (both optional, default empty/undefined): a Map<planeId,HeightSim> of
+  // genuinely-tilted planes (buildPlaneSims' output, restricted to td.obliqueIds) and the program's
+  // plane definitions (for matrix/origin), ANDed in via obliquePlaneSolid so the real oblique
+  // fallback joins the SAME fused mesh instead of being drawn as separate disconnected slabs.
+  // Omitted, this is 100% unchanged (tri-dexel-only) behaviour.
+  function fuseTriDexel(td, target, obliqueSims, planeById) {
     const box = td.box;
     const W = box.xmax - box.xmin, H = box.ymax - box.ymin, D = box.zmax - box.zmin;
     const c = Math.max(W, H, D) / target;
     const nx = Math.max(8, Math.round(W / c)), ny = Math.max(8, Math.round(H / c)), nz = Math.max(8, Math.round(D / c));
     const entries = [...td.grids.entries()].map(([key, grid]) => ({ axisIdx: 'XYZ'.indexOf(key[0]), sign: key[1] === '+' ? 1 : -1, grid }));
+    const obliqueEntries = obliqueSims ? [...obliqueSims.entries()].map(([id, sim]) => ({ matrix: planeById.get(id).matrix, origin: planeById.get(id).origin, sim })) : [];
     const occ = new Uint8Array(nx * ny * nz);
     for (let k = 0; k < nz; k++) {
       const wz = box.zmin + (k + 0.5) * c;
@@ -1130,6 +1164,7 @@ const NC = (() => {
           const wx = box.xmin + (i + 0.5) * c;
           let solid = true;
           for (const e of entries) { if (!triSampleSolid(e.grid, e.axisIdx, e.sign, wx, wy, wz)) { solid = false; break; } }
+          if (solid) for (const e of obliqueEntries) { if (!obliquePlaneSolid(e.sim, e.matrix, e.origin, wx, wy, wz)) { solid = false; break; } }
           if (solid) occ[(k * ny + j) * nx + i] = 1;
         }
       }
@@ -1333,7 +1368,7 @@ const NC = (() => {
 
   return { parseProgram, completeTool, simTool, prof, holderSegments, applyLibrary, typeFromText, parseSetupCsv, applyCsvTools, unzipText, guessFromName,
            HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti,
-           planeAxisWorld, classifyPlanes, undercutOnlyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel,
+           planeAxisWorld, classifyPlanes, undercutOnlyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel, obliquePlaneSolid,
            parseStlBinary, parseCimcoSetup, applyCimcoTools, cimcoToFloorsimSetup,
            meshFromHeightArray, transformPoints, seedHeightSim,
            demoProgram, stressProgram, RAPID_MMPM };

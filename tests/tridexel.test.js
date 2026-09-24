@@ -207,5 +207,88 @@ M9
   ok(omitted.size === real.planes.length, `buildPlaneSims with onlyIds omitted still builds one sim per plane (${omitted.size} of ${real.planes.length})`);
 }
 
+/* ---------- obliquePlaneSolid: don't trust a cell a plane never actually cut ----------
+   buildPlaneSims fits a plane's box to its own moves' EXTENTS, which can be much larger than
+   what it actually cuts (e.g. a perimeter/rim pass whose path spans nearly the whole part while
+   only removing a thin band). A cell inside that box but never touched by a real cut is still at
+   its initial value (op===0) and must read as "no opinion" (true), not "empty" (false) - an
+   unclipped version wrongly excludes real material that belongs to some OTHER plane/grid
+   entirely. Found tracing a real ~20mm depth error to exactly this on a real job (O1160's plane
+   1, a genuine 14.66deg tilt) during the tri-dexel/oblique-fusion spike - see spike/NOTES3.md and
+   spike/fusedpipeline.js for the investigation; that job's data is private and not in fixtures/,
+   so this pins the fix with a minimal synthetic case instead. */
+{
+  const sim = new NC.HeightSim({ xmin: 0, xmax: 10, ymin: 0, ymax: 10, zbot: 0, ztop: 10 }, 10);
+  const T = { R: 1, kind: 0 };
+  sim.cut(2, 2, 5, 2, 2, 5, T, 1); // one small plunge near (2,2) - leaves h=5, op=1 there
+  const identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], origin = [0, 0, 0];
+
+  // Untouched cell, tested BELOW the box's own zBot - an unclipped version would read this as
+  // "empty" (local z < zBot), when the correct answer is "this plane has no opinion here at all".
+  ok(NC.obliquePlaneSolid(sim, identity, origin, 8, 8, -1) === true,
+    'untouched cell: no opinion even below the box zBot (would be wrongly excluded unclipped)');
+  // The one cell this plane's real cut DID touch must still assert its real, correct constraint.
+  ok(NC.obliquePlaneSolid(sim, identity, origin, 2, 2, 6) === false,
+    'cut cell: correctly excludes material above where it actually removed material');
+  ok(NC.obliquePlaneSolid(sim, identity, origin, 2, 2, 4) === true,
+    'cut cell: correctly allows material below its own cut depth');
+}
+
+/* ---------- fuseTriDexel: optional oblique-plane AND-fusion into the same mesh ----------
+   New trailing (obliqueSims, planeById) parameters, both optional - omitted, 100% today's
+   tri-dexel-only behaviour (every existing call site/test above still passes with exactly 2
+   args, proving that). Passed, a genuinely oblique plane's own HeightSim (buildPlaneSims,
+   unmodified) is ANDed in via obliquePlaneSolid, so the real oblique fallback joins the SAME
+   watertight mesh instead of being drawn as a disconnected slab - the point of app.js's fold-in.
+   Uses two widely-separated moves on the oblique plane so its own box (fit to move extent) spans
+   a big chunk of the shared world box while only cutting two small spots within it - exactly the
+   shape of bug obliquePlaneSolid's test above guards against, now exercised end-to-end. */
+{
+  const gcode = `G21 G90 G17
+(T1  D=10. CR=0. - FLAT END MILL)
+T1 M6
+S5000 M3
+(-- plane 0: base block, one real feed move to establish real stock extent --)
+G0 X0. Y0. Z10.
+G1 Z9. F500.
+G1 X100. Y100. F800.
+G0 Z10.
+(-- plane C: a genuine oblique tilt (I80 J90 K0 - same real angle family as O1224's plane 7) --)
+G68.2 X0 Y0 Z0 I80. J90. K0.
+G53.1
+G0 X5. Y5. Z10.
+G1 Z8. F500.
+G0 Z10.
+G0 X90. Y90. Z10.
+G1 Z9.5 F500.
+G0 Z10.
+G69
+M9
+`;
+  const P = NC.parseProgram(gcode);
+  const simTools = new Map(P.tools.map(t => [t.no, NC.simTool(t)]));
+  const cls = NC.classifyPlanes(P.planes);
+  ok(cls.obliqueIds.has(1), `plane 1 (I80/J90/K0) is genuinely oblique, not near any world axis (got aligned=${[...cls.alignedIds]}, oblique=${[...cls.obliqueIds]})`);
+
+  const td = NC.buildTriDexel(P, 60, 5);
+  for (let i = 0; i < P.n; i++) NC.cutTriDexelMove(td, P, simTools, i, 0, 1);
+  const meshAlone = NC.fuseTriDexel(td, 40);
+
+  const obliqueSims = NC.buildPlaneSims(P, undefined, 60, 5, new Set([1]));
+  ok(obliqueSims.size === 1 && obliqueSims.has(1), `buildPlaneSims restricted to the oblique plane builds exactly one sim (got ${[...obliqueSims.keys()]})`);
+  for (let i = 0; i < P.n; i++) NC.cutMoveMulti(obliqueSims, P, simTools, i, 0, 1);
+  const planeById = new Map(P.planes.map(p => [p.id, p]));
+  const meshCombined = NC.fuseTriDexel(td, 40, obliqueSims, planeById);
+
+  ok(meshCombined.idx.length > 0, 'combined fuse: mesh is nonempty');
+  // The regression this guards against: an unclipped oblique AND-test wipes out most of the
+  // shared box (measured on the real job: 2.1M of 10.2M voxels wrongly excluded by one plane
+  // alone). A correctly-clipped combine should stay in the same ballpark as tri-dexel alone, not
+  // collapse to a sliver - loose bound (not exact equality: the oblique plane's own two real cuts
+  // legitimately remove a little extra material near its own moves).
+  ok(meshCombined.pos.length > meshAlone.pos.length * 0.5,
+    `combined fuse keeps most of the shared box's volume, not collapsed by the oblique plane's box (alone=${meshAlone.pos.length / 3} verts, combined=${meshCombined.pos.length / 3} verts)`);
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);
