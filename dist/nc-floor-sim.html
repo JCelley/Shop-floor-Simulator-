@@ -1503,7 +1503,7 @@ const NC = (() => {
   // the world test point into that local frame first (local = M^T . (world - origin), valid since
   // M is a rotation matrix).
   //
-  // CLIPPING: boxFromMoves sizes a plane's box to its own moves' bounding box, which for a
+  // CLIPPING (XY): boxFromMoves sizes a plane's box to its own moves' bounding box, which for a
   // perimeter/rim pass can span nearly the whole part even though the pass only actually cuts a
   // thin band within that box. A cell the plane's own cutMove never touched is still at its
   // initial value (op===0, HeightSim.reset()'s marker) and must NOT be trusted as "this plane
@@ -1511,6 +1511,21 @@ const NC = (() => {
   // everywhere else, same as outside its box, it has no opinion. (Found and fixed during the
   // 3+2/tri-dexel fusion spike - see spike/NOTES3.md and spike/fusedpipeline.js for the
   // investigation: an unclipped version wrongly excluded ~20% of a real job's stock volume.)
+  //
+  // CLIPPING (Z): boxFromMoves' zBot/zTop are tightly padded (as little as 0.5mm - see app.js's
+  // tiltPad) around THIS plane's own real moves' local Z extent - for a single roughing pass that
+  // can be under 1mm thick, nothing like the real stock's actual depth. That's fine for a genuinely
+  // local query, but a world-vertical ray (what AND-fusing into one mesh does) does NOT stay
+  // within one local Z column when the local frame is tilted - it sweeps across a wide swing of
+  // local Z as world Z changes (confirmed on a real job: a 25mm world-Z sweep crossed local Z from
+  // ~59 to past 88 while the plane's own real box only spanned 75.98-79.25). HeightSim's "below
+  // zBot = empty" rule is correct for a box that IS the real stock's floor (tri-dexel's Z+/X+/etc
+  // grids); for an oblique plane's narrow, tightly-padded local box it means only "below the
+  // deepest real cut THIS plane ever made" - querying below that is out of this plane's business,
+  // not proof there's no material, so it must be "no opinion" too, same as never-cut and
+  // out-of-XY-footprint. (Found the same way as the XY clipping bug: traced a real disconnected-
+  // looking wall on O1160 to exactly this - a world-vertical scan asking plane 1 about a local Z
+  // its own real moves never came near, at an (lx,ly) cell a DIFFERENT, real cut had touched.)
   function obliquePlaneSolid(sim, matrix, origin, wx, wy, wz) {
     const dx = wx - origin[0], dy = wy - origin[1], dz = wz - origin[2];
     const lx = matrix[0][0] * dx + matrix[1][0] * dy + matrix[2][0] * dz;
@@ -1520,9 +1535,9 @@ const NC = (() => {
     if (i < 0 || j < 0 || i > sim.nx - 1 || j > sim.ny - 1) return true;
     const idx = j * sim.nx + i;
     if (sim.op[idx] === 0) return true; // never actually cut by this plane - no opinion
-    const h = sim.h[idx];
     const EPS = 1e-4;
-    return lz <= h + EPS && lz >= sim.zBot - EPS;
+    if (lz < sim.zBot - EPS) return true; // below this plane's own real cutting range - no opinion, not "empty"
+    return lz <= sim.h[idx] + EPS;
   }
 
   // Boolean-AND every signed grid td has (a world point is solid only if every grid that has an

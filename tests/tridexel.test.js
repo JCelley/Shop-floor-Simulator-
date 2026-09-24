@@ -232,6 +232,22 @@ M9
     'cut cell: correctly excludes material above where it actually removed material');
   ok(NC.obliquePlaneSolid(sim, identity, origin, 2, 2, 4) === true,
     'cut cell: correctly allows material below its own cut depth');
+
+  // A CUT cell (op!=0), queried BELOW the box's own zBot: the plane's real box is tightly padded
+  // around just its own moves' local Z extent (as little as 0.5mm - see app.js's tiltPad), not the
+  // real stock's actual depth. Fusing into one mesh queries every plane along a WORLD-vertical
+  // ray, which does NOT stay within one local Z column when the local frame is tilted - it can
+  // swing local Z far outside a plane's own narrow real range (confirmed on O1160: a 25mm world-Z
+  // sweep crossed local Z from ~59 to past 88 while plane 1's own box only spanned 75.98-79.25).
+  // "Below zBot = empty" is correct for a box that IS the real stock's floor (tri-dexel's grids);
+  // for an oblique plane's narrow box it only means "below the deepest real cut THIS plane ever
+  // made" - querying below that must be "no opinion", not "empty", even on a cell this plane did
+  // cut. Missing this produced a real, visible bug: O1160's side walls rendered as disconnected
+  // floating slivers (a solid-empty-solid void), because a WORLD-vertical ray through plane 1
+  // wrongly read "empty" for most of the wall's real height, far outside plane 1's own ~1mm-thick
+  // local box.
+  ok(NC.obliquePlaneSolid(sim, identity, origin, 2, 2, -1) === true,
+    'cut cell, queried below zBot: no opinion (out of this plane\'s real Z range), not wrongly excluded');
 }
 
 /* ---------- fuseTriDexel: optional oblique-plane AND-fusion into the same mesh ----------
