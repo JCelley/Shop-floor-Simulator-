@@ -42,6 +42,8 @@ Read `docs/NOTES.md` for evidence, file formats, and the decision log. This file
 | `fusion/FloorSimExport.py` (per-setup stock + workholding export) | v1 ran in real Fusion (produced 4 files; exposed an origin-unit bug). v2 fix is tested on fake data and by re-placing v1 output. The new `wcs.originMM` field (for stock chaining) is likewise **not re-run in Fusion** — untested until a fresh export is generated and loaded |
 | `fusion/FloorSimJobExport/` add-in (button + one job file) | Installed and run for real (button now lives in the Milling tab's Actions panel). Not run since the `originMM` addition |
 | Cascading post writes the job JSON | `CSV_Cascade_Post_v2_6_7.cps` writes `<base>.floorsim.json` (stock box + setup name only, no G-code or tool list — see NOTES). **Run for real against O1228**: stock box matched the value already verified via the Python export route to the mm. The proven `CSV_Cascade_Post_v2_6_6.cps` is untouched |
+| Tool shapes from the post (`TOOLGEOM`) | `CSV_Cascade_Post_v2_7_2.cps` adds one `TOOLGEOM` line per tool to the `.setup`. **Run for real on O1224 (2026-09-24)**: all 15 tools written; the lollipop's 0.115" neck arrives as `P_shoulderDiameter` (`P_neckDiameter` is NA) |
+| Undercut tools + smooth surface | Merged and live 2026-09-25. Undercut cutting verified by hand-worked tests and a synthetic T-slot in real Chrome. **Not yet checked against a real job with a heavy undercut** (O1224's lollipop is only a deburr pass) |
 | Chromebook performance | John ran it on a real shop Chromebook (2026-09-24): "worked really well". Not formally timed |
 | Hosting | Live at https://jcelley.github.io/Shop-floor-Simulator-/ - every push to `main` rebuilds and deploys (`.github/workflows/deploy-pages.yml`). Repo is public by John's choice |
 | Load by program # | Type `O1138` (or `1138`) + Load; folder picked once and remembered (File System Access API + IndexedDB). `?program=O1138` in the link fills it. **Untested on a Chromebook against a Google Shared Drive folder** |
@@ -79,7 +81,13 @@ npm test           # all suites; needs Node 18+ and Python 3 for the Fusion-side
 - **Units:** everything internal is **mm**, Z up, tool position = tool **tip**. Programs in inches are converted on parse.
 - **Stock model:** z-dexel **height field** on a grid (default ~360 cells on the long side). Each feed move removes the exact
   swept envelope of the tool. Exact for vertical-axis tools with a convex, non-decreasing profile: flat, ball, bull-nose,
-  drill point, chamfer/cone.
+  drill point, chamfer/cone. A column can also hold pockets below its top (`HeightSim.voids`) for undercut tools.
+- **Undercut tools** (lollipop, T-slot, dovetail - `UNDERCUT_RE`/`undercutKind`) cut for real: `cutUndercut` removes, per
+  column, the height band where the tool's profile (head, then thinner neck, then shank - `undercutProfile`) reaches that
+  far off-axis. Shape comes from the post's `TOOLGEOM` line (`applyUndercutGeometry`); without it, the neck/head size is a
+  labelled guess with a warning. A job with an undercut tool or several aligned planes uses the tri-dexel path.
+- **Smooth surface (tri-dexel jobs):** `stockField` makes a continuous solid from all grids, `surfaceNets` meshes it; progress
+  colours compare the live and final field at the same point. Faint streaks and a slightly wavy lip remain.
 - **Playback:** the whole program is simulated once up front (progress bar), storing snapshots and the final surface;
   colours compare the live surface with the final one. Scrubbing restores the nearest snapshot then re-cuts forward.
 - **Per-frame budget:** playback advances within ~9 ms of simulation per frame and shows a "sim-limited" chip if the device
@@ -99,17 +107,16 @@ npm test           # all suites; needs Node 18+ and Python 3 for the Fusion-side
 
 ## Known limits (do not "fix" silently, they are design boundaries)
 
-- No undercut tools (T-slot, dovetail, lollipop, woodruff...): detected by name (`UNDERCUT_RE` in engine.js) and flagged
-  in the warnings; stock removal is skipped for that tool (toolpath still plays) rather than simulated wrong. A real
-  multi-interval-dexel fix is a deliberately deferred, separate project — see NOTES.md.
+- Undercut tools must point straight down their plane's Z; their pockets exist only in the height-grid columns (no
+  side-facing grids for pockets). A tool detected as undercut by name but with no profile still skips stock removal.
 - No overhang stock, no full continuous 5-axis motion (bare A/B/C rotary moves with no G68.2 are still ignored). 3+2
   (tilted work plane via G68.2/G53.1/G69) **is simulated and rendered**, one real HeightSim per plane, verified visually
   against a real job (see NOTES.md) — but the probe (click-to-see-what-cut-this) only works on the base plane, and a
   program with no real stock box supplied can render with the base block's auto-guessed size hiding the tilted meshes
   inside it (known, left alone for now — see NOTES.md).
   "Stock from previous setup" **is chained** when the earlier setup's own result is still available this session (see NOTES.md) —
-  exact for a flat parting plane with no interlocking features visible from both sides; a part needing that would need the same
-  deferred multi-interval-dexel rewrite as undercut tools.
+  exact for a flat parting plane with no interlocking features visible from both sides; a part needing that would need a
+  full multi-interval stock model (not built).
 - Cutter compensation G41/G42 is **not** applied (John confirmed his contours are tool-centre paths using wear comp), but the parser
   does track when it's active and its D register, shown as a badge on the Operations list (see NOTES.md).
 - Peck cycles (G73/G83) are simulated as one plunge. Rapids never cut. No holder/fixture collision.
