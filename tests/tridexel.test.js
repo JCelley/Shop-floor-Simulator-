@@ -306,5 +306,53 @@ M9
     `combined fuse keeps most of the shared box's volume, not collapsed by the oblique plane's box (alone=${meshAlone.pos.length / 3} verts, combined=${meshCombined.pos.length / 3} verts)`);
 }
 
+/* ---------- smooth stock surface (stockField + surfaceNets) ----------
+   Replaces the blocky cube-face mesh for display. Pinned: vertices really sit on the stock
+   surface, a flat cut floor comes out at its exact depth (not rounded to a voxel), the finished
+   shape as a field reads "nothing left" on its own surface, and the real job stays in its box. */
+{
+  const P = NC.parseProgram(`G21 G90 G17
+(T1  D=10. CR=0. - FLAT END MILL)
+T1 M6
+S5000 M3
+G0 X10. Y10. Z10.
+G1 Z-3.37 F500.
+G1 X40. F800.
+G1 Y30.
+G1 X10.
+G1 Y10.
+G0 Z10.
+M30`);
+  const simTools = new Map(P.tools.map(t => [t.no, NC.simTool(t)]));
+  const box = { xmin: 0, xmax: 50, ymin: 0, ymax: 40, zbot: -10, ztop: 0 };
+  const td = NC.buildTriDexel(P, 200, 3, box);
+  for (let i = 0; i < P.n; i++) NC.cutTriDexelMove(td, P, simTools, i, 0, 1);
+  const m = NC.meshTriDexelSmooth(td, 100, new Map(), new Map());
+  ok(m.idx.length > 0 && m.nor.length === m.pos.length, `smooth mesh built (${m.idx.length / 3} triangles, one normal per vertex)`);
+  let worst = 0; const errs = [];
+  for (let q = 0; q < m.pos.length; q += 3) { const f = Math.abs(m.field.value(m.pos[q], m.pos[q + 1], m.pos[q + 2])); errs.push(f); if (f > worst) worst = f; }
+  errs.sort((a, b) => a - b);
+  const cellSm = m.cell, med = errs[Math.floor(errs.length / 2)], p95 = errs[Math.floor(errs.length * 0.95)];
+  ok(med < 0.005, `typical vertex sits on the stock surface (median off by ${med.toFixed(4)} mm)`);
+  ok(p95 < 0.2 * cellSm && worst < 0.6 * cellSm, `edge/corner vertices stay within a fraction of a ${cellSm.toFixed(2)}mm cell (95th pct ${p95.toFixed(3)}, worst ${worst.toFixed(3)} mm)`);
+  // the channel floor, well away from its walls: exactly -3.37, not snapped to a lattice level
+  let floorZ = []; for (let q = 0; q < m.pos.length; q += 3) { const x = m.pos[q], y = m.pos[q + 1]; if (Math.abs(x - 25) < 5 && Math.abs(y - 10) < 1.5 && m.nor[q + 2] > 0.99) floorZ.push(m.pos[q + 2]); }
+  ok(floorZ.length > 3 && floorZ.every(z => Math.abs(z + 3.37) < 0.005), `cut floor comes out at its exact depth -3.37 (got ${floorZ.length} vertices, ${floorZ.slice(0, 3).map(z => z.toFixed(4))})`);
+  ok(floorZ.length && m.field.op(25, 10, -3.37) === P.OP[P.n - 3] + 1, 'the field names the operation that cut the floor');
+  // the finished program as a field compared against itself: no material left anywhere on the surface
+  const fin = NC.stockField(td, new Map(), new Map(), new Map([['Z+', { h: td.grids.get('Z+').h.slice(), op: td.grids.get('Z+').op.slice() }]]));
+  let maxLeft = 0; for (let q = 0; q < m.pos.length; q += 3) maxLeft = Math.max(maxLeft, m.field.value(m.pos[q], m.pos[q + 1], m.pos[q + 2]) - fin.value(m.pos[q], m.pos[q + 1], m.pos[q + 2]));
+  ok(maxLeft < 1e-6, `finished state vs itself reads zero material left everywhere (max ${maxLeft.toExponential(1)})`);
+
+  // real O1224 (5 grids + 1 oblique plane): nonempty and inside the shared box
+  const simToolsR = new Map(real.tools.map(t => [t.no, NC.simTool(t)]));
+  const tdR = NC.buildTriDexel(real, 120, 5);
+  for (let i = 0; i < real.n; i++) NC.cutTriDexelMove(tdR, real, simToolsR, i, 0, 1);
+  const mr = NC.meshTriDexelSmooth(tdR, 60, new Map(), new Map());
+  const cell = Math.max(tdR.box.xmax - tdR.box.xmin, tdR.box.ymax - tdR.box.ymin, tdR.box.zmax - tdR.box.zmin) / 60;
+  let inside = true; for (let q = 0; q < mr.pos.length; q += 3) { const [x, y, z] = [mr.pos[q], mr.pos[q + 1], mr.pos[q + 2]]; if (x < tdR.box.xmin - cell || x > tdR.box.xmax + cell || y < tdR.box.ymin - cell || y > tdR.box.ymax + cell || z < tdR.box.zmin - cell || z > tdR.box.zmax + cell) inside = false; }
+  ok(mr.idx.length > 1000 && inside, `real O1224 smooth mesh: ${mr.idx.length / 3} triangles, all inside the shared box`);
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

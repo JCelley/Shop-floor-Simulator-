@@ -520,14 +520,9 @@ function showProbe(i, j, px, py) {
 
 // Probe for a tri-dexel job: raycast TRI_ROOT's real triangle mesh directly (simpler than the
 // hand-rolled AABB march above, since the mesh is a real triangulated solid in world space), then
-// use the hit face's world normal to find which signed grid (Z+/Z-/Y+/Y-/X+/X-) the hit face
-// belongs to - the culled-voxel-face meshing means every face is an axis-aligned quad, so the
-// matching grid's signed direction has a dot product with the normal close to +1, every other
-// candidate close to -1 or 0. The world hit point is then re-expressed in that grid's own local
-// (i,j) column - the same axis permutation triSampleSolid/fuseTriDexel use in engine.js, inlined
-// here rather than exported since it's a few lines and this is the only other place that needs it -
-// so its .op[] (provenance) can be read directly. Oblique planes (rendered via TILT_ROOT, not
-// TRI_ROOT) are not hit by this raycast at all and stay unprobable, same as today.
+// ask the stock field which grid (or oblique plane) defines the surface at the hit point and read
+// that cell's op[] - works for any surface angle now that the mesh is smooth, not just the
+// axis-aligned cube faces the old face-normal lookup relied on.
 function pickAtTri(cx, cy) {
   if (!S.td || !S.ready) return;
   const mesh = TRI_ROOT.children[0];
@@ -537,31 +532,22 @@ function pickAtTri(cx, cy) {
   raycaster.setFromCamera(ndc, camera);
   const hits = raycaster.intersectObject(mesh, false);
   if (!hits.length || !hits[0].face) return hideProbe();
-  const hit = hits[0];
-  const n = hit.face.normal.clone().transformDirection(mesh.matrixWorld).normalize();
-  let bestKey = null, bestDot = -Infinity;
-  for (const key of S.td.grids.keys()) {
-    const axisIdx = 'XYZ'.indexOf(key[0]), sign = key[1] === '+' ? 1 : -1;
-    const dot = sign * (axisIdx === 0 ? n.x : axisIdx === 1 ? n.y : n.z);
-    if (dot > bestDot) { bestDot = dot; bestKey = key; }
-  }
-  if (!bestKey) return hideProbe();
-  const grid = S.td.grids.get(bestKey), axisIdx = 'XYZ'.indexOf(bestKey[0]);
-  const wx = hit.point.x, wy = hit.point.y, wz = hit.point.z;
-  const ax = axisIdx === 2 ? wx : axisIdx === 0 ? wy : wz;
-  const ay = axisIdx === 2 ? wy : axisIdx === 0 ? wz : wx;
-  const i = Math.floor((ax - grid.x0) / grid.dx), j = Math.floor((ay - grid.y0) / grid.dy);
-  if (i < 0 || j < 0 || i >= grid.nx || j >= grid.ny) return hideProbe();
-  showProbeTri(grid, i, j, cx - r.left, cy - r.top);
+  const hit = hits[0], x = hit.point.x, y = hit.point.y, z = hit.point.z;
+  // The grid that defines the surface at this point is the one the field reads there, so its own
+  // cell's op[] says which operation last cut it; the finished-program field says what comes next.
+  const live = S.triMesh ? S.triMesh.field.op(x, y, z) : 0;
+  const fin = S.finalField ? S.finalField.op(x, y, z) : 0;
+  const left = S.finalField ? -S.finalField.value(x, y, z) : 0;
+  showProbeTri(live, fin, left, [x, y, z], cx - r.left, cy - r.top);
 }
-function showProbeTri(grid, i, j, px, py) {
-  const P = S.prog, idx = j * grid.nx + i, box = $('probe');
-  const live = grid.op[idx];
+function showProbeTri(live, fin, left, p, px, py) {
+  const P = S.prog, box = $('probe');
   const oname = k => `T${P.ops[k].tool}, ${esc(P.ops[k].label)}`;
   let head, body = '', btn = '', opk = -1;
-  if (live) { opk = live - 1; head = 'Machined by ' + oname(opk); body = 'At its final depth for this program.'; btn = 'Replay this operation'; }
+  if (live) { opk = live - 1; head = 'Machined by ' + oname(opk); body = left > 0.02 ? `${left.toFixed(2)} mm of material still to come off here.` : 'At its final depth for this program.'; btn = 'Replay this operation'; }
+  else if (fin) { opk = fin - 1; head = 'Not cut yet'; body = 'Will be machined by ' + oname(opk) + '.'; btn = 'Jump to that operation'; }
   else { head = 'Original stock surface'; body = 'This program never touches this spot.'; }
-  box.innerHTML = `<h3>${head}</h3><p>${body}</p><div class="row">${btn ? '<button class="btn primary" id="probeGo" type="button">' + btn + '</button>' : ''}<button class="btn" id="probeX" type="button">Close</button></div>`;
+  box.innerHTML = `<h3>${head}</h3><p>${body}<br>X ${p[0].toFixed(2)}  Y ${p[1].toFixed(2)}  Z ${p[2].toFixed(2)}</p><div class="row">${btn ? '<button class="btn primary" id="probeGo" type="button">' + btn + '</button>' : ''}<button class="btn" id="probeX" type="button">Close</button></div>`;
   box.hidden = false;
   const w = vp.clientWidth, h = vp.clientHeight;
   box.style.left = clamp(px + 14, 8, Math.max(8, w - 286)) + 'px'; box.style.top = clamp(py + 14, 8, Math.max(8, h - box.offsetHeight - 8)) + 'px';
@@ -843,6 +829,26 @@ function restoreSnap(snap) {
   if (S.td && snap.td) { for (const [key, grid] of S.td.grids) grid.restore(snap.td.get(key)); }
 }
 
+// Colours for the smooth tilted-job surface, same convention as the flat-job one: blue where
+// material is still to come off, green once it's at final size, fading over 0.06mm; or each spot
+// in the colour of the tool that last cut it. "Still to come off" is the current field minus the
+// finished one AT THE SAME POINT, so a vertex sitting a hair off the surface can't read as stock.
+function triColours(m) {
+  const p = m.pos, n = p.length, col = new Float32Array(n), prog = S.mode === 'progress', P = S.prog;
+  for (let q = 0; q < n; q += 3) {
+    let c;
+    if (prog) {
+      const t = S.finalField ? clamp((m.field.value(p[q], p[q + 1], p[q + 2]) - S.finalField.value(p[q], p[q + 1], p[q + 2])) / 0.06, 0, 1) : 1;
+      col[q] = GREEN[0] + (BLUE[0] - GREEN[0]) * t; col[q + 1] = GREEN[1] + (BLUE[1] - GREEN[1]) * t; col[q + 2] = GREEN[2] + (BLUE[2] - GREEN[2]) * t;
+      continue;
+    }
+    const o = m.field.op(p[q], p[q + 1], p[q + 2]);
+    c = o ? TOOL_RGB.get(P.ops[o - 1].tool) || NEUTRAL : NEUTRAL;
+    col[q] = c[0]; col[q + 1] = c[1]; col[q + 2] = c[2];
+  }
+  return col;
+}
+
 // Re-extract TRI_ROOT's visible surface from the CURRENT (partially cut) grid state.
 // live=true during playback: the cheaper target, throttled, so removal is visible without eating
 // the frame budget. live=false once settled (paused, scrubbed, finished, or freshly rebuilt):
@@ -853,23 +859,21 @@ function refreshTriStock(live) {
   if (live && now - S.triFuseAt < TRI_FUSE_MIN_MS) return;   // throttle: cap live re-fuse rate
   if (!S.triDirty && S.triFuseLive === live) return;          // nothing changed and same quality
   // S.sims here holds exactly the oblique fallback plane(s) (see rebuild()) - ANDed into the same
-  // fused mesh via obliquePlaneSolid instead of being drawn as their own separate TILT_ROOT slabs.
-  const planeById = new Map(S.prog.planes.map(p => [p.id, p]));
-  const { pos, idx } = NC.fuseTriDexel(S.td, live ? TRI_FUSE_LIVE : TRI_FUSE_TARGET, S.sims, planeById);
+  // smooth surface instead of being drawn as their own separate TILT_ROOT slabs.
+  const m = NC.meshTriDexelSmooth(S.td, live ? TRI_FUSE_LIVE : TRI_FUSE_TARGET, S.sims, S.planeById);
+  const col = triColours(m);
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setIndex(new THREE.BufferAttribute(idx, 1));
-  geo.computeVertexNormals();
+  geo.setAttribute('position', new THREE.BufferAttribute(m.pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(m.nor, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setIndex(new THREE.BufferAttribute(m.idx, 1));
   const old = TRI_ROOT.children.find(c => c.isMesh);
   if (old) { old.geometry.dispose(); old.geometry = geo; }
   else {
-    // Neutral steel-ish grey rather than the blue/green "still to remove vs at final size"
-    // convention: that colouring compares a live surface against this program's own finished
-    // one, and the fused tri-dexel surface is rebuilt wholesale each time rather than carrying
-    // per-cell history, so there's nothing to compare against cell-by-cell here.
-    const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color(STEEL[0], STEEL[1], STEEL[2]), side: THREE.DoubleSide });
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; TRI_ROOT.add(mesh);
   }
+  S.triMesh = m;
   S.triFuseAt = now; S.triDirty = false; S.triFuseLive = live;
   invalidate();
 }
@@ -914,7 +918,8 @@ async function prepass(token, sims, td) {
     }
   }
   const finals = new Map(); for (const [id, sim] of sims) finals.set(id, { h: sim.h.slice(), op: sim.op.slice() });
-  return { snaps, finals, ms: performance.now() - t0 };
+  const tdFinals = new Map(); if (td) for (const [key, grid] of td.grids) tdFinals.set(key, { h: grid.h.slice(), op: grid.op.slice() });
+  return { snaps, finals, tdFinals, ms: performance.now() - t0 };
 }
 async function rebuild(fresh) {
   const token = ++S.token; S.ready = false; S.playing = false; updatePlay(); hideProbe();
@@ -966,6 +971,13 @@ async function rebuild(fresh) {
   S.snaps = r.snaps;
   const fin0 = r.finals.get(0);
   S.finalH = fin0 ? fin0.h : null; S.finalOp = fin0 ? fin0.op : null;   // null on the tri-dexel path - no working probe there yet (Phase 3)
+  // The finished program as a field (same grids, end-of-program heights) - the smooth tilted-job
+  // surface is coloured by how far each point still is from it, like the flat-job surface is.
+  S.planeById = new Map(S.prog.planes.map(p => [p.id, p]));
+  if (S.td) {
+    const fin = new Map(r.tdFinals); for (const [id, v] of r.finals) fin.set('p' + id, v);
+    S.finalField = NC.stockField(S.td, S.sims, S.planeById, fin);
+  } else S.finalField = null;
   // Grid-resolution chip: on a tri-dexel job there's no single S.sim to report, so use whichever
   // signed grid happens to be first - purely informational (all grids target the same ~S.res
   // density), not something anything else depends on.
@@ -1342,7 +1354,10 @@ $('themeBtn').onclick = () => {
 document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
   S.mode = b.dataset.mode;
   document.querySelectorAll('[data-mode]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-  if (S.sim && S.prog) { buildLegend(); for (const pl of S.planes.values()) refreshStock(pl.sim, pl.stock, true); }
+  if (S.prog) {
+    buildLegend(); for (const pl of S.planes.values()) refreshStock(pl.sim, pl.stock, true);
+    if (S.triDexel) { S.triDirty = true; S.triFuseLive = null; refreshTriStock(false); }
+  }
 });
 document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
 $('projBtn').onclick = () => setOrtho(camera !== orthoCam);

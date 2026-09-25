@@ -160,9 +160,13 @@ const ready = async () => { await sleep(300); for (let i = 0; i < 600 && !w.__fl
   // Pick a real, already-cut cell straight from the Z+ grid (the base plane's own signed grid,
   // guaranteed present) instead of guessing screen pixels - grounds the expected tool in the
   // actual simulated data, not an assumption about where a feature happens to render.
+  // The cell must sit well inside a patch cut by one op (not on the stock's rounded outer edge or
+  // a boundary between two ops): the surface is smooth now, so it no longer has a cube face at
+  // exactly a grid cell's own edge for a click to land on.
   const gridZ = S.td.grids.get('Z+');
   let hitIdx = -1;
-  for (let k = 0; k < gridZ.nx * gridZ.ny; k++) if (gridZ.op[k]) { hitIdx = k; break; }
+  const same = (i, j, o) => { for (let b = -3; b <= 3; b++) for (let a = -3; a <= 3; a++) { const q = (j + b) * gridZ.nx + i + a; if (gridZ.op[q] !== o || Math.abs(gridZ.h[q] - gridZ.h[j * gridZ.nx + i]) > 0.01) return false; } return true; };
+  for (let j = 8; j < gridZ.ny - 8 && hitIdx < 0; j++) for (let i = 8; i < gridZ.nx - 8; i++) { const k = j * gridZ.nx + i; if (gridZ.op[k] && same(i, j, gridZ.op[k])) { hitIdx = k; break; } }
   ok(hitIdx >= 0, 'the Z+ grid has at least one real cut cell to probe');
   const gi = hitIdx % gridZ.nx, gj = Math.floor(hitIdx / gridZ.nx);
   const wx = gridZ.x0 + (gi + 0.5) * gridZ.dx, wy = gridZ.y0 + (gj + 0.5) * gridZ.dy, wz = gridZ.h[hitIdx];

@@ -1230,6 +1230,149 @@ const NC = (() => {
     return { pos: Float32Array.from(pos), idx: Uint32Array.from(tri) };
   }
 
+  /* ---------- smooth stock surface ----------
+     fuseTriDexel above meshes a yes/no voxel grid, so every face is an axis-aligned cube face and
+     sloped walls, holes and radii come out as visible stair steps. Here the same grids give a
+     continuous value instead - roughly how far (mm) a point is inside the material along each
+     grid's own axis: positive inside, zero on the surface, negative outside - and the surface is
+     pulled out where it crosses zero (Surface Nets). Each grid's height is read bilinearly between
+     cell centres, so a floor lands at its exact cut depth and a wall blends across one cell
+     instead of stepping. Same "every grid must agree it's solid" rule as fuseTriDexel (a minimum
+     of the per-grid values), same clipping for oblique planes as obliquePlaneSolid. */
+
+  // arrays (optional): Map of grid key ('Z+', ...) or 'p<planeId>' -> {h, op} to evaluate a
+  // different state with the same geometry - the program's finished result, for colouring.
+  // A wall running at an angle to a height grid can only change height at cell centres, so it
+  // carries a sawtooth up to half a cell deep along its length (measured on O1160's 15deg outer
+  // face: +-0.08mm on a face that is really flat). A smooth surface follows that faithfully and the
+  // lighting turns it into visible lumps. One 1-2-1 pass in each direction averages the sawtooth
+  // out while leaving a step edge where it was (the blur is symmetric) and flat floors untouched -
+  // for DISPLAY only, the cutting grids themselves are never modified.
+  function blurHeights(h, nx, ny) {
+    const t = new Float32Array(h.length), o = new Float32Array(h.length);
+    for (let j = 0; j < ny; j++) { const r = j * nx; for (let i = 0; i < nx; i++) t[r + i] = 0.25 * (h[r + (i > 0 ? i - 1 : i)] + 2 * h[r + i] + h[r + (i < nx - 1 ? i + 1 : i)]); }
+    for (let j = 0; j < ny; j++) { const r = j * nx, u = (j > 0 ? j - 1 : j) * nx, d = (j < ny - 1 ? j + 1 : j) * nx; for (let i = 0; i < nx; i++) o[r + i] = 0.25 * (t[u + i] + 2 * t[r + i] + t[d + i]); }
+    return o;
+  }
+
+  function stockField(td, obliqueSims, planeById, arrays) {
+    const box = td.box;
+    const al = [...td.grids.entries()].map(([key, g]) => {
+      const a = arrays && arrays.get(key);
+      return { g, axis: 'XYZ'.indexOf(key[0]), sign: key[1] === '+' ? 1 : -1, h: blurHeights(a ? a.h : g.h, g.nx, g.ny), op: a ? a.op : g.op };
+    });
+    const ob = obliqueSims ? [...obliqueSims.entries()].map(([id, sim]) => {
+      const a = arrays && arrays.get('p' + id), p = planeById.get(id);
+      return { g: sim, m: p.matrix, o: p.origin, h: blurHeights(a ? a.h : sim.h, sim.nx, sim.ny), op: a ? a.op : sim.op };
+    }) : [];
+    let lastOp = 0;   // op id of the grid that set the most recent value() result (0 = original stock face)
+    // Bilinear height between the four nearest cell centres; also records the nearest cell's op.
+    const hAt = (e, ax, ay) => {
+      const g = e.g, nx = g.nx, mx = nx - 1, my = g.ny - 1;
+      let u = (ax - g.x0) / g.dx - 0.5, v = (ay - g.y0) / g.dy - 0.5;
+      if (u < 0) u = 0; else if (u > mx) u = mx;
+      if (v < 0) v = 0; else if (v > my) v = my;
+      let i = Math.floor(u), j = Math.floor(v);
+      if (i >= mx) i = mx - 1; if (j >= my) j = my - 1;
+      const fu = u - i, fv = v - j, h = e.h, r0 = j * nx + i, r1 = r0 + nx;
+      e.near = (fv < 0.5 ? r0 : r1) + (fu < 0.5 ? 0 : 1);
+      return (h[r0] * (1 - fu) + h[r0 + 1] * fu) * (1 - fv) + (h[r1] * (1 - fu) + h[r1 + 1] * fu) * fv;
+    };
+    function value(x, y, z) {
+      let f = x - box.xmin, t; lastOp = 0;
+      if ((t = box.xmax - x) < f) f = t; if ((t = y - box.ymin) < f) f = t; if ((t = box.ymax - y) < f) f = t;
+      if ((t = z - box.zmin) < f) f = t; if ((t = box.zmax - z) < f) f = t;
+      for (let k = 0; k < al.length; k++) {
+        const e = al[k];
+        let ax, ay, az;
+        if (e.axis === 2) { ax = x; ay = y; az = e.sign * z; } else if (e.axis === 0) { ax = y; ay = z; az = e.sign * x; } else { ax = z; ay = x; az = e.sign * y; }
+        t = hAt(e, ax, ay) - az;
+        const tb = az - e.g.zBot; if (tb < t) t = tb;
+        if (t < f) { f = t; lastOp = e.op[e.near]; }
+      }
+      for (let k = 0; k < ob.length; k++) {
+        const e = ob[k], m = e.m, dx = x - e.o[0], dy = y - e.o[1], dz = z - e.o[2], g = e.g;
+        const lx = m[0][0] * dx + m[1][0] * dy + m[2][0] * dz, ly = m[0][1] * dx + m[1][1] * dy + m[2][1] * dz, lz = m[0][2] * dx + m[1][2] * dy + m[2][2] * dz;
+        const ci = Math.floor((lx - g.x0) / g.dx), cj = Math.floor((ly - g.y0) / g.dy);
+        if (ci < 0 || cj < 0 || ci >= g.nx || cj >= g.ny || e.op[cj * g.nx + ci] === 0 || lz < g.zBot) continue;   // no opinion here
+        t = hAt(e, lx, ly) - lz;
+        if (t < f) { f = t; lastOp = e.op[cj * g.nx + ci]; }
+      }
+      return f;
+    }
+    // shading gradient width: ~2 cells of the finest grid in play
+    let fine = Infinity; for (const e of al.concat(ob)) fine = Math.min(fine, e.g.dx, e.g.dy);
+    return { box, value, op: (x, y, z) => { value(x, y, z); return lastOp; }, normalEps: isFinite(fine) ? 2 * fine : 0 };
+  }
+
+  // Surface Nets over field.value on a lattice of cell size max(box)/target, one cell of margin
+  // round the box so the stock's own faces close. Normals come from the field's gradient rather
+  // than averaged faces, so flat floors stay flat right up to a wall.
+  function surfaceNets(field, target) {
+    const box = field.box, fv = field.value;
+    const c = Math.max(box.xmax - box.xmin, box.ymax - box.ymin, box.zmax - box.zmin) / target;
+    const Lx = Math.ceil((box.xmax - box.xmin) / c) + 3, Ly = Math.ceil((box.ymax - box.ymin) / c) + 3, Lz = Math.ceil((box.zmax - box.zmin) / c) + 3;
+    const x0 = box.xmin - c, y0 = box.ymin - c, z0 = box.zmin - c;
+    const F = new Float32Array(Lx * Ly * Lz);
+    for (let k = 0, q = 0; k < Lz; k++) { const z = z0 + k * c; for (let j = 0; j < Ly; j++) { const y = y0 + j * c; for (let i = 0; i < Lx; i++, q++) F[q] = fv(x0 + i * c, y, z); } }
+    const Cx = Lx - 1, Cy = Ly - 1, Cz = Lz - 1, vid = new Int32Array(Cx * Cy * Cz).fill(-1), pos = [];
+    const off = [0, 1, Lx, Lx + 1, Lx * Ly, Lx * Ly + 1, Lx * Ly + Lx, Lx * Ly + Lx + 1];
+    const cx = [0, 1, 0, 1, 0, 1, 0, 1], cy = [0, 0, 1, 1, 0, 0, 1, 1], cz = [0, 0, 0, 0, 1, 1, 1, 1];
+    const E = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
+    const v = new Float32Array(8);
+    for (let k = 0; k < Cz; k++) for (let j = 0; j < Cy; j++) for (let i = 0; i < Cx; i++) {
+      const p = i + Lx * (j + Ly * k);
+      let inside = 0;
+      for (let b = 0; b < 8; b++) { v[b] = F[p + off[b]]; if (v[b] > 0) inside++; }
+      if (inside === 0 || inside === 8) continue;
+      let sx = 0, sy = 0, sz = 0, n = 0;
+      for (let e = 0; e < 12; e++) {
+        const a = E[e][0], b = E[e][1];
+        if ((v[a] > 0) === (v[b] > 0)) continue;
+        const t = v[a] / (v[a] - v[b]);
+        sx += cx[a] + (cx[b] - cx[a]) * t; sy += cy[a] + (cy[b] - cy[a]) * t; sz += cz[a] + (cz[b] - cz[a]) * t; n++;
+      }
+      vid[i + Cx * (j + Cy * k)] = pos.length / 3;
+      pos.push(x0 + (i + sx / n) * c, y0 + (j + sy / n) * c, z0 + (k + sz / n) * c);
+    }
+    const idx = [], cube = (i, j, k) => vid[i + Cx * (j + Cy * k)];
+    const quad = (a, b, cc, d, flip) => { if (a < 0 || b < 0 || cc < 0 || d < 0) return; if (flip) idx.push(a, d, cc, a, cc, b); else idx.push(a, b, cc, a, cc, d); };
+    for (let k = 0; k < Lz; k++) for (let j = 0; j < Ly; j++) for (let i = 0; i < Lx; i++) {
+      const p = i + Lx * (j + Ly * k), s = F[p] > 0;
+      // winding: normal points from the solid side to the empty side
+      if (i < Cx && j > 0 && k > 0 && j < Cy && k < Cz && s !== (F[p + 1] > 0)) quad(cube(i, j - 1, k - 1), cube(i, j, k - 1), cube(i, j, k), cube(i, j - 1, k), !s);
+      if (j < Cy && i > 0 && k > 0 && i < Cx && k < Cz && s !== (F[p + Lx] > 0)) quad(cube(i - 1, j, k - 1), cube(i - 1, j, k), cube(i, j, k), cube(i, j, k - 1), !s);
+      if (k < Cz && i > 0 && j > 0 && i < Cx && j < Cy && s !== (F[p + Lx * Ly] > 0)) quad(cube(i - 1, j - 1, k), cube(i, j - 1, k), cube(i, j, k), cube(i - 1, j, k), !s);
+    }
+    // Surface Nets puts each vertex at the average of its cube's edge crossings, which sits up to
+    // about half a cell off the real surface on walls and edges. One Newton step along the field's
+    // gradient (capped at half a cell) snaps it back onto the surface - crisper edges, and a vertex
+    // that is actually where the stock is.
+    // Shading uses a wider gradient (normalEps): a wall running at an angle to a height grid can
+    // only change height at cell centres, so it carries tiny cell-sized steps along its length -
+    // harmless to the shape, but a tight gradient lights every one of them up as a vertical ridge.
+    const P = Float32Array.from(pos), nor = new Float32Array(P.length), eps = c * 0.5, cap = c * 0.5, ne = Math.max(c, field.normalEps || 0);
+    const grad = (x, y, z, e) => [(fv(x + e, y, z) - fv(x - e, y, z)) / (2 * e), (fv(x, y + e, z) - fv(x, y - e, z)) / (2 * e), (fv(x, y, z + e) - fv(x, y, z - e)) / (2 * e)];
+    for (let q = 0; q < P.length; q += 3) {
+      let x = P[q], y = P[q + 1], z = P[q + 2];
+      const [gx, gy, gz] = grad(x, y, z, eps), g2 = gx * gx + gy * gy + gz * gz;
+      if (g2 > 1e-8) {
+        const s = fv(x, y, z) / g2; let sx = s * gx, sy = s * gy, sz = s * gz;
+        const sl = Math.hypot(sx, sy, sz); if (sl > cap) { sx *= cap / sl; sy *= cap / sl; sz *= cap / sl; }
+        P[q] = x -= sx; P[q + 1] = y -= sy; P[q + 2] = z -= sz;
+      }
+      const [nx, ny, nz] = grad(x, y, z, ne), l = Math.hypot(nx, ny, nz) || 1;
+      nor[q] = -nx / l; nor[q + 1] = -ny / l; nor[q + 2] = -nz / l;
+    }
+    return { pos: P, idx: Uint32Array.from(idx), nor, cell: c };
+  }
+
+  // Drop-in smooth counterpart of fuseTriDexel (same arguments), plus the field for colouring.
+  function meshTriDexelSmooth(td, target, obliqueSims, planeById) {
+    const field = stockField(td, obliqueSims, planeById);
+    return Object.assign(surfaceNets(field, target), { field });
+  }
+
   /* ---------- cross-setup stock chaining ----------
      A later setup ("from preceding setup" stock mode) starts from what an earlier setup's
      program actually left behind, not a flat block. Fusion does not expose this shape for that
@@ -1403,7 +1546,7 @@ const NC = (() => {
 
   return { parseProgram, completeTool, simTool, prof, holderSegments, applyLibrary, typeFromText, parseSetupCsv, applyCsvTools, unzipText, guessFromName,
            HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti,
-           planeAxisWorld, classifyPlanes, undercutOnlyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel, obliquePlaneSolid,
+           planeAxisWorld, classifyPlanes, undercutOnlyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel, obliquePlaneSolid, stockField, surfaceNets, meshTriDexelSmooth,
            parseStlBinary, parseCimcoSetup, applyCimcoTools, cimcoToFloorsimSetup,
            meshFromHeightArray, transformPoints, seedHeightSim,
            demoProgram, stressProgram, RAPID_MMPM };

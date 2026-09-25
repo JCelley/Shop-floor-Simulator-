@@ -1652,6 +1652,149 @@ const NC = (() => {
     return { pos: Float32Array.from(pos), idx: Uint32Array.from(tri) };
   }
 
+  /* ---------- smooth stock surface ----------
+     fuseTriDexel above meshes a yes/no voxel grid, so every face is an axis-aligned cube face and
+     sloped walls, holes and radii come out as visible stair steps. Here the same grids give a
+     continuous value instead - roughly how far (mm) a point is inside the material along each
+     grid's own axis: positive inside, zero on the surface, negative outside - and the surface is
+     pulled out where it crosses zero (Surface Nets). Each grid's height is read bilinearly between
+     cell centres, so a floor lands at its exact cut depth and a wall blends across one cell
+     instead of stepping. Same "every grid must agree it's solid" rule as fuseTriDexel (a minimum
+     of the per-grid values), same clipping for oblique planes as obliquePlaneSolid. */
+
+  // arrays (optional): Map of grid key ('Z+', ...) or 'p<planeId>' -> {h, op} to evaluate a
+  // different state with the same geometry - the program's finished result, for colouring.
+  // A wall running at an angle to a height grid can only change height at cell centres, so it
+  // carries a sawtooth up to half a cell deep along its length (measured on O1160's 15deg outer
+  // face: +-0.08mm on a face that is really flat). A smooth surface follows that faithfully and the
+  // lighting turns it into visible lumps. One 1-2-1 pass in each direction averages the sawtooth
+  // out while leaving a step edge where it was (the blur is symmetric) and flat floors untouched -
+  // for DISPLAY only, the cutting grids themselves are never modified.
+  function blurHeights(h, nx, ny) {
+    const t = new Float32Array(h.length), o = new Float32Array(h.length);
+    for (let j = 0; j < ny; j++) { const r = j * nx; for (let i = 0; i < nx; i++) t[r + i] = 0.25 * (h[r + (i > 0 ? i - 1 : i)] + 2 * h[r + i] + h[r + (i < nx - 1 ? i + 1 : i)]); }
+    for (let j = 0; j < ny; j++) { const r = j * nx, u = (j > 0 ? j - 1 : j) * nx, d = (j < ny - 1 ? j + 1 : j) * nx; for (let i = 0; i < nx; i++) o[r + i] = 0.25 * (t[u + i] + 2 * t[r + i] + t[d + i]); }
+    return o;
+  }
+
+  function stockField(td, obliqueSims, planeById, arrays) {
+    const box = td.box;
+    const al = [...td.grids.entries()].map(([key, g]) => {
+      const a = arrays && arrays.get(key);
+      return { g, axis: 'XYZ'.indexOf(key[0]), sign: key[1] === '+' ? 1 : -1, h: blurHeights(a ? a.h : g.h, g.nx, g.ny), op: a ? a.op : g.op };
+    });
+    const ob = obliqueSims ? [...obliqueSims.entries()].map(([id, sim]) => {
+      const a = arrays && arrays.get('p' + id), p = planeById.get(id);
+      return { g: sim, m: p.matrix, o: p.origin, h: blurHeights(a ? a.h : sim.h, sim.nx, sim.ny), op: a ? a.op : sim.op };
+    }) : [];
+    let lastOp = 0;   // op id of the grid that set the most recent value() result (0 = original stock face)
+    // Bilinear height between the four nearest cell centres; also records the nearest cell's op.
+    const hAt = (e, ax, ay) => {
+      const g = e.g, nx = g.nx, mx = nx - 1, my = g.ny - 1;
+      let u = (ax - g.x0) / g.dx - 0.5, v = (ay - g.y0) / g.dy - 0.5;
+      if (u < 0) u = 0; else if (u > mx) u = mx;
+      if (v < 0) v = 0; else if (v > my) v = my;
+      let i = Math.floor(u), j = Math.floor(v);
+      if (i >= mx) i = mx - 1; if (j >= my) j = my - 1;
+      const fu = u - i, fv = v - j, h = e.h, r0 = j * nx + i, r1 = r0 + nx;
+      e.near = (fv < 0.5 ? r0 : r1) + (fu < 0.5 ? 0 : 1);
+      return (h[r0] * (1 - fu) + h[r0 + 1] * fu) * (1 - fv) + (h[r1] * (1 - fu) + h[r1 + 1] * fu) * fv;
+    };
+    function value(x, y, z) {
+      let f = x - box.xmin, t; lastOp = 0;
+      if ((t = box.xmax - x) < f) f = t; if ((t = y - box.ymin) < f) f = t; if ((t = box.ymax - y) < f) f = t;
+      if ((t = z - box.zmin) < f) f = t; if ((t = box.zmax - z) < f) f = t;
+      for (let k = 0; k < al.length; k++) {
+        const e = al[k];
+        let ax, ay, az;
+        if (e.axis === 2) { ax = x; ay = y; az = e.sign * z; } else if (e.axis === 0) { ax = y; ay = z; az = e.sign * x; } else { ax = z; ay = x; az = e.sign * y; }
+        t = hAt(e, ax, ay) - az;
+        const tb = az - e.g.zBot; if (tb < t) t = tb;
+        if (t < f) { f = t; lastOp = e.op[e.near]; }
+      }
+      for (let k = 0; k < ob.length; k++) {
+        const e = ob[k], m = e.m, dx = x - e.o[0], dy = y - e.o[1], dz = z - e.o[2], g = e.g;
+        const lx = m[0][0] * dx + m[1][0] * dy + m[2][0] * dz, ly = m[0][1] * dx + m[1][1] * dy + m[2][1] * dz, lz = m[0][2] * dx + m[1][2] * dy + m[2][2] * dz;
+        const ci = Math.floor((lx - g.x0) / g.dx), cj = Math.floor((ly - g.y0) / g.dy);
+        if (ci < 0 || cj < 0 || ci >= g.nx || cj >= g.ny || e.op[cj * g.nx + ci] === 0 || lz < g.zBot) continue;   // no opinion here
+        t = hAt(e, lx, ly) - lz;
+        if (t < f) { f = t; lastOp = e.op[cj * g.nx + ci]; }
+      }
+      return f;
+    }
+    // shading gradient width: ~2 cells of the finest grid in play
+    let fine = Infinity; for (const e of al.concat(ob)) fine = Math.min(fine, e.g.dx, e.g.dy);
+    return { box, value, op: (x, y, z) => { value(x, y, z); return lastOp; }, normalEps: isFinite(fine) ? 2 * fine : 0 };
+  }
+
+  // Surface Nets over field.value on a lattice of cell size max(box)/target, one cell of margin
+  // round the box so the stock's own faces close. Normals come from the field's gradient rather
+  // than averaged faces, so flat floors stay flat right up to a wall.
+  function surfaceNets(field, target) {
+    const box = field.box, fv = field.value;
+    const c = Math.max(box.xmax - box.xmin, box.ymax - box.ymin, box.zmax - box.zmin) / target;
+    const Lx = Math.ceil((box.xmax - box.xmin) / c) + 3, Ly = Math.ceil((box.ymax - box.ymin) / c) + 3, Lz = Math.ceil((box.zmax - box.zmin) / c) + 3;
+    const x0 = box.xmin - c, y0 = box.ymin - c, z0 = box.zmin - c;
+    const F = new Float32Array(Lx * Ly * Lz);
+    for (let k = 0, q = 0; k < Lz; k++) { const z = z0 + k * c; for (let j = 0; j < Ly; j++) { const y = y0 + j * c; for (let i = 0; i < Lx; i++, q++) F[q] = fv(x0 + i * c, y, z); } }
+    const Cx = Lx - 1, Cy = Ly - 1, Cz = Lz - 1, vid = new Int32Array(Cx * Cy * Cz).fill(-1), pos = [];
+    const off = [0, 1, Lx, Lx + 1, Lx * Ly, Lx * Ly + 1, Lx * Ly + Lx, Lx * Ly + Lx + 1];
+    const cx = [0, 1, 0, 1, 0, 1, 0, 1], cy = [0, 0, 1, 1, 0, 0, 1, 1], cz = [0, 0, 0, 0, 1, 1, 1, 1];
+    const E = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
+    const v = new Float32Array(8);
+    for (let k = 0; k < Cz; k++) for (let j = 0; j < Cy; j++) for (let i = 0; i < Cx; i++) {
+      const p = i + Lx * (j + Ly * k);
+      let inside = 0;
+      for (let b = 0; b < 8; b++) { v[b] = F[p + off[b]]; if (v[b] > 0) inside++; }
+      if (inside === 0 || inside === 8) continue;
+      let sx = 0, sy = 0, sz = 0, n = 0;
+      for (let e = 0; e < 12; e++) {
+        const a = E[e][0], b = E[e][1];
+        if ((v[a] > 0) === (v[b] > 0)) continue;
+        const t = v[a] / (v[a] - v[b]);
+        sx += cx[a] + (cx[b] - cx[a]) * t; sy += cy[a] + (cy[b] - cy[a]) * t; sz += cz[a] + (cz[b] - cz[a]) * t; n++;
+      }
+      vid[i + Cx * (j + Cy * k)] = pos.length / 3;
+      pos.push(x0 + (i + sx / n) * c, y0 + (j + sy / n) * c, z0 + (k + sz / n) * c);
+    }
+    const idx = [], cube = (i, j, k) => vid[i + Cx * (j + Cy * k)];
+    const quad = (a, b, cc, d, flip) => { if (a < 0 || b < 0 || cc < 0 || d < 0) return; if (flip) idx.push(a, d, cc, a, cc, b); else idx.push(a, b, cc, a, cc, d); };
+    for (let k = 0; k < Lz; k++) for (let j = 0; j < Ly; j++) for (let i = 0; i < Lx; i++) {
+      const p = i + Lx * (j + Ly * k), s = F[p] > 0;
+      // winding: normal points from the solid side to the empty side
+      if (i < Cx && j > 0 && k > 0 && j < Cy && k < Cz && s !== (F[p + 1] > 0)) quad(cube(i, j - 1, k - 1), cube(i, j, k - 1), cube(i, j, k), cube(i, j - 1, k), !s);
+      if (j < Cy && i > 0 && k > 0 && i < Cx && k < Cz && s !== (F[p + Lx] > 0)) quad(cube(i - 1, j, k - 1), cube(i - 1, j, k), cube(i, j, k), cube(i, j, k - 1), !s);
+      if (k < Cz && i > 0 && j > 0 && i < Cx && j < Cy && s !== (F[p + Lx * Ly] > 0)) quad(cube(i - 1, j - 1, k), cube(i, j - 1, k), cube(i, j, k), cube(i - 1, j, k), !s);
+    }
+    // Surface Nets puts each vertex at the average of its cube's edge crossings, which sits up to
+    // about half a cell off the real surface on walls and edges. One Newton step along the field's
+    // gradient (capped at half a cell) snaps it back onto the surface - crisper edges, and a vertex
+    // that is actually where the stock is.
+    // Shading uses a wider gradient (normalEps): a wall running at an angle to a height grid can
+    // only change height at cell centres, so it carries tiny cell-sized steps along its length -
+    // harmless to the shape, but a tight gradient lights every one of them up as a vertical ridge.
+    const P = Float32Array.from(pos), nor = new Float32Array(P.length), eps = c * 0.5, cap = c * 0.5, ne = Math.max(c, field.normalEps || 0);
+    const grad = (x, y, z, e) => [(fv(x + e, y, z) - fv(x - e, y, z)) / (2 * e), (fv(x, y + e, z) - fv(x, y - e, z)) / (2 * e), (fv(x, y, z + e) - fv(x, y, z - e)) / (2 * e)];
+    for (let q = 0; q < P.length; q += 3) {
+      let x = P[q], y = P[q + 1], z = P[q + 2];
+      const [gx, gy, gz] = grad(x, y, z, eps), g2 = gx * gx + gy * gy + gz * gz;
+      if (g2 > 1e-8) {
+        const s = fv(x, y, z) / g2; let sx = s * gx, sy = s * gy, sz = s * gz;
+        const sl = Math.hypot(sx, sy, sz); if (sl > cap) { sx *= cap / sl; sy *= cap / sl; sz *= cap / sl; }
+        P[q] = x -= sx; P[q + 1] = y -= sy; P[q + 2] = z -= sz;
+      }
+      const [nx, ny, nz] = grad(x, y, z, ne), l = Math.hypot(nx, ny, nz) || 1;
+      nor[q] = -nx / l; nor[q + 1] = -ny / l; nor[q + 2] = -nz / l;
+    }
+    return { pos: P, idx: Uint32Array.from(idx), nor, cell: c };
+  }
+
+  // Drop-in smooth counterpart of fuseTriDexel (same arguments), plus the field for colouring.
+  function meshTriDexelSmooth(td, target, obliqueSims, planeById) {
+    const field = stockField(td, obliqueSims, planeById);
+    return Object.assign(surfaceNets(field, target), { field });
+  }
+
   /* ---------- cross-setup stock chaining ----------
      A later setup ("from preceding setup" stock mode) starts from what an earlier setup's
      program actually left behind, not a flat block. Fusion does not expose this shape for that
@@ -1825,7 +1968,7 @@ const NC = (() => {
 
   return { parseProgram, completeTool, simTool, prof, holderSegments, applyLibrary, typeFromText, parseSetupCsv, applyCsvTools, unzipText, guessFromName,
            HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti,
-           planeAxisWorld, classifyPlanes, undercutOnlyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel, obliquePlaneSolid,
+           planeAxisWorld, classifyPlanes, undercutOnlyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel, obliquePlaneSolid, stockField, surfaceNets, meshTriDexelSmooth,
            parseStlBinary, parseCimcoSetup, applyCimcoTools, cimcoToFloorsimSetup,
            meshFromHeightArray, transformPoints, seedHeightSim,
            demoProgram, stressProgram, RAPID_MMPM };
@@ -2356,14 +2499,9 @@ function showProbe(i, j, px, py) {
 
 // Probe for a tri-dexel job: raycast TRI_ROOT's real triangle mesh directly (simpler than the
 // hand-rolled AABB march above, since the mesh is a real triangulated solid in world space), then
-// use the hit face's world normal to find which signed grid (Z+/Z-/Y+/Y-/X+/X-) the hit face
-// belongs to - the culled-voxel-face meshing means every face is an axis-aligned quad, so the
-// matching grid's signed direction has a dot product with the normal close to +1, every other
-// candidate close to -1 or 0. The world hit point is then re-expressed in that grid's own local
-// (i,j) column - the same axis permutation triSampleSolid/fuseTriDexel use in engine.js, inlined
-// here rather than exported since it's a few lines and this is the only other place that needs it -
-// so its .op[] (provenance) can be read directly. Oblique planes (rendered via TILT_ROOT, not
-// TRI_ROOT) are not hit by this raycast at all and stay unprobable, same as today.
+// ask the stock field which grid (or oblique plane) defines the surface at the hit point and read
+// that cell's op[] - works for any surface angle now that the mesh is smooth, not just the
+// axis-aligned cube faces the old face-normal lookup relied on.
 function pickAtTri(cx, cy) {
   if (!S.td || !S.ready) return;
   const mesh = TRI_ROOT.children[0];
@@ -2373,31 +2511,22 @@ function pickAtTri(cx, cy) {
   raycaster.setFromCamera(ndc, camera);
   const hits = raycaster.intersectObject(mesh, false);
   if (!hits.length || !hits[0].face) return hideProbe();
-  const hit = hits[0];
-  const n = hit.face.normal.clone().transformDirection(mesh.matrixWorld).normalize();
-  let bestKey = null, bestDot = -Infinity;
-  for (const key of S.td.grids.keys()) {
-    const axisIdx = 'XYZ'.indexOf(key[0]), sign = key[1] === '+' ? 1 : -1;
-    const dot = sign * (axisIdx === 0 ? n.x : axisIdx === 1 ? n.y : n.z);
-    if (dot > bestDot) { bestDot = dot; bestKey = key; }
-  }
-  if (!bestKey) return hideProbe();
-  const grid = S.td.grids.get(bestKey), axisIdx = 'XYZ'.indexOf(bestKey[0]);
-  const wx = hit.point.x, wy = hit.point.y, wz = hit.point.z;
-  const ax = axisIdx === 2 ? wx : axisIdx === 0 ? wy : wz;
-  const ay = axisIdx === 2 ? wy : axisIdx === 0 ? wz : wx;
-  const i = Math.floor((ax - grid.x0) / grid.dx), j = Math.floor((ay - grid.y0) / grid.dy);
-  if (i < 0 || j < 0 || i >= grid.nx || j >= grid.ny) return hideProbe();
-  showProbeTri(grid, i, j, cx - r.left, cy - r.top);
+  const hit = hits[0], x = hit.point.x, y = hit.point.y, z = hit.point.z;
+  // The grid that defines the surface at this point is the one the field reads there, so its own
+  // cell's op[] says which operation last cut it; the finished-program field says what comes next.
+  const live = S.triMesh ? S.triMesh.field.op(x, y, z) : 0;
+  const fin = S.finalField ? S.finalField.op(x, y, z) : 0;
+  const left = S.finalField ? -S.finalField.value(x, y, z) : 0;
+  showProbeTri(live, fin, left, [x, y, z], cx - r.left, cy - r.top);
 }
-function showProbeTri(grid, i, j, px, py) {
-  const P = S.prog, idx = j * grid.nx + i, box = $('probe');
-  const live = grid.op[idx];
+function showProbeTri(live, fin, left, p, px, py) {
+  const P = S.prog, box = $('probe');
   const oname = k => `T${P.ops[k].tool}, ${esc(P.ops[k].label)}`;
   let head, body = '', btn = '', opk = -1;
-  if (live) { opk = live - 1; head = 'Machined by ' + oname(opk); body = 'At its final depth for this program.'; btn = 'Replay this operation'; }
+  if (live) { opk = live - 1; head = 'Machined by ' + oname(opk); body = left > 0.02 ? `${left.toFixed(2)} mm of material still to come off here.` : 'At its final depth for this program.'; btn = 'Replay this operation'; }
+  else if (fin) { opk = fin - 1; head = 'Not cut yet'; body = 'Will be machined by ' + oname(opk) + '.'; btn = 'Jump to that operation'; }
   else { head = 'Original stock surface'; body = 'This program never touches this spot.'; }
-  box.innerHTML = `<h3>${head}</h3><p>${body}</p><div class="row">${btn ? '<button class="btn primary" id="probeGo" type="button">' + btn + '</button>' : ''}<button class="btn" id="probeX" type="button">Close</button></div>`;
+  box.innerHTML = `<h3>${head}</h3><p>${body}<br>X ${p[0].toFixed(2)}  Y ${p[1].toFixed(2)}  Z ${p[2].toFixed(2)}</p><div class="row">${btn ? '<button class="btn primary" id="probeGo" type="button">' + btn + '</button>' : ''}<button class="btn" id="probeX" type="button">Close</button></div>`;
   box.hidden = false;
   const w = vp.clientWidth, h = vp.clientHeight;
   box.style.left = clamp(px + 14, 8, Math.max(8, w - 286)) + 'px'; box.style.top = clamp(py + 14, 8, Math.max(8, h - box.offsetHeight - 8)) + 'px';
@@ -2679,6 +2808,26 @@ function restoreSnap(snap) {
   if (S.td && snap.td) { for (const [key, grid] of S.td.grids) grid.restore(snap.td.get(key)); }
 }
 
+// Colours for the smooth tilted-job surface, same convention as the flat-job one: blue where
+// material is still to come off, green once it's at final size, fading over 0.06mm; or each spot
+// in the colour of the tool that last cut it. "Still to come off" is the current field minus the
+// finished one AT THE SAME POINT, so a vertex sitting a hair off the surface can't read as stock.
+function triColours(m) {
+  const p = m.pos, n = p.length, col = new Float32Array(n), prog = S.mode === 'progress', P = S.prog;
+  for (let q = 0; q < n; q += 3) {
+    let c;
+    if (prog) {
+      const t = S.finalField ? clamp((m.field.value(p[q], p[q + 1], p[q + 2]) - S.finalField.value(p[q], p[q + 1], p[q + 2])) / 0.06, 0, 1) : 1;
+      col[q] = GREEN[0] + (BLUE[0] - GREEN[0]) * t; col[q + 1] = GREEN[1] + (BLUE[1] - GREEN[1]) * t; col[q + 2] = GREEN[2] + (BLUE[2] - GREEN[2]) * t;
+      continue;
+    }
+    const o = m.field.op(p[q], p[q + 1], p[q + 2]);
+    c = o ? TOOL_RGB.get(P.ops[o - 1].tool) || NEUTRAL : NEUTRAL;
+    col[q] = c[0]; col[q + 1] = c[1]; col[q + 2] = c[2];
+  }
+  return col;
+}
+
 // Re-extract TRI_ROOT's visible surface from the CURRENT (partially cut) grid state.
 // live=true during playback: the cheaper target, throttled, so removal is visible without eating
 // the frame budget. live=false once settled (paused, scrubbed, finished, or freshly rebuilt):
@@ -2689,23 +2838,21 @@ function refreshTriStock(live) {
   if (live && now - S.triFuseAt < TRI_FUSE_MIN_MS) return;   // throttle: cap live re-fuse rate
   if (!S.triDirty && S.triFuseLive === live) return;          // nothing changed and same quality
   // S.sims here holds exactly the oblique fallback plane(s) (see rebuild()) - ANDed into the same
-  // fused mesh via obliquePlaneSolid instead of being drawn as their own separate TILT_ROOT slabs.
-  const planeById = new Map(S.prog.planes.map(p => [p.id, p]));
-  const { pos, idx } = NC.fuseTriDexel(S.td, live ? TRI_FUSE_LIVE : TRI_FUSE_TARGET, S.sims, planeById);
+  // smooth surface instead of being drawn as their own separate TILT_ROOT slabs.
+  const m = NC.meshTriDexelSmooth(S.td, live ? TRI_FUSE_LIVE : TRI_FUSE_TARGET, S.sims, S.planeById);
+  const col = triColours(m);
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setIndex(new THREE.BufferAttribute(idx, 1));
-  geo.computeVertexNormals();
+  geo.setAttribute('position', new THREE.BufferAttribute(m.pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(m.nor, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setIndex(new THREE.BufferAttribute(m.idx, 1));
   const old = TRI_ROOT.children.find(c => c.isMesh);
   if (old) { old.geometry.dispose(); old.geometry = geo; }
   else {
-    // Neutral steel-ish grey rather than the blue/green "still to remove vs at final size"
-    // convention: that colouring compares a live surface against this program's own finished
-    // one, and the fused tri-dexel surface is rebuilt wholesale each time rather than carrying
-    // per-cell history, so there's nothing to compare against cell-by-cell here.
-    const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color(STEEL[0], STEEL[1], STEEL[2]), side: THREE.DoubleSide });
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; TRI_ROOT.add(mesh);
   }
+  S.triMesh = m;
   S.triFuseAt = now; S.triDirty = false; S.triFuseLive = live;
   invalidate();
 }
@@ -2750,7 +2897,8 @@ async function prepass(token, sims, td) {
     }
   }
   const finals = new Map(); for (const [id, sim] of sims) finals.set(id, { h: sim.h.slice(), op: sim.op.slice() });
-  return { snaps, finals, ms: performance.now() - t0 };
+  const tdFinals = new Map(); if (td) for (const [key, grid] of td.grids) tdFinals.set(key, { h: grid.h.slice(), op: grid.op.slice() });
+  return { snaps, finals, tdFinals, ms: performance.now() - t0 };
 }
 async function rebuild(fresh) {
   const token = ++S.token; S.ready = false; S.playing = false; updatePlay(); hideProbe();
@@ -2802,6 +2950,13 @@ async function rebuild(fresh) {
   S.snaps = r.snaps;
   const fin0 = r.finals.get(0);
   S.finalH = fin0 ? fin0.h : null; S.finalOp = fin0 ? fin0.op : null;   // null on the tri-dexel path - no working probe there yet (Phase 3)
+  // The finished program as a field (same grids, end-of-program heights) - the smooth tilted-job
+  // surface is coloured by how far each point still is from it, like the flat-job surface is.
+  S.planeById = new Map(S.prog.planes.map(p => [p.id, p]));
+  if (S.td) {
+    const fin = new Map(r.tdFinals); for (const [id, v] of r.finals) fin.set('p' + id, v);
+    S.finalField = NC.stockField(S.td, S.sims, S.planeById, fin);
+  } else S.finalField = null;
   // Grid-resolution chip: on a tri-dexel job there's no single S.sim to report, so use whichever
   // signed grid happens to be first - purely informational (all grids target the same ~S.res
   // density), not something anything else depends on.
@@ -3178,7 +3333,10 @@ $('themeBtn').onclick = () => {
 document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
   S.mode = b.dataset.mode;
   document.querySelectorAll('[data-mode]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-  if (S.sim && S.prog) { buildLegend(); for (const pl of S.planes.values()) refreshStock(pl.sim, pl.stock, true); }
+  if (S.prog) {
+    buildLegend(); for (const pl of S.planes.values()) refreshStock(pl.sim, pl.stock, true);
+    if (S.triDexel) { S.triDirty = true; S.triFuseLive = null; refreshTriStock(false); }
+  }
 });
 document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
 $('projBtn').onclick = () => setOrtho(camera !== orthoCam);
