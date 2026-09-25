@@ -405,7 +405,8 @@ function checkSetup(P, st, setup, chained) {
   const out = [];
   if (!setup) return out;
   const R = Math.max(...P.tools.map(t => t.D / 2)); let near = 0, n = 0;
-  for (let i = 0; i < P.n; i++) if (P.K[i]) {
+  // base-plane moves only: a tilted plane's moves are in its own local frame, not the stock box's
+  for (let i = 0; i < P.n; i++) if (P.K[i] && !(P.PL && P.PL[i])) {
     n++;
     if (P.X[i] > st.xmin - R && P.X[i] < st.xmax + R && P.Y[i] > st.ymin - R && P.Y[i] < st.ymax + R && P.Z[i] > st.zbot - 1 && P.Z[i] < st.ztop + 1) near++;
   }

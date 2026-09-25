@@ -61,14 +61,10 @@ const U = path.join(ROOT, 'fixtures') + path.sep, C = path.join(ROOT, 'fixtures'
   ok(!/Workholding sinks/.test(warnText), 'no fixture-sink-depth warning: ' + warnText.slice(0, 300));
   ok(!/nearest workholding part is/.test(warnText), 'no fixture-proximity warning: ' + warnText.slice(0, 300));
   ok(!/unverified/i.test(warnText), 'no A/B/C-rotation warning fired (real sample is all-zero): ' + warnText.slice(0, 300));
-  // The stock-coverage check DOES fire here, and that's correct, pre-existing behavior, not a bug
-  // in this pass: checkSetup()'s coverage check compares every move's raw LOCAL coordinates
-  // against one base-frame box with no awareness of which tilted plane a move belongs to. On a
-  // real accurate (tight) box, plane 0's moves are 100% inside and every tilted plane's moves are
-  // 0% inside (confirmed directly against the real move data - see docs/NOTES.md) - a real,
-  // pre-existing gap for multi-plane jobs that a loose guessed box always happened to hide before.
-  // Out of scope here per the plan: checkSetup() gets zero changes in this pass.
-  ok(/cutting moves are inside the stock box/.test(warnText), 'the known multi-plane stock-coverage limitation fires as expected (not a regression): ' + warnText.slice(0, 300));
+  // The stock-coverage check only counts base-plane moves: tilted-plane moves are in their own local
+  // frame, so counting them (as it once did) flagged this correct real setup at 37% inside.
+  ok(!/cutting moves are inside the stock box/.test(warnText), 'no false stock-coverage warning on a real 3+2 job: ' + warnText.slice(0, 300));
+  ok(!/not yet simulated/.test(warnText), 'the tilted-plane note no longer claims they are not simulated');
 
   // ---- real tool/holder data applied, not NC-comment guessing - the exact tap-diameter regression
   const t45 = S.tools.find(t => t.no === 45);

@@ -732,12 +732,11 @@ const NC = (() => {
       if (words.length) block(words, li + 1);
     }
 
-    // Tilted-plane summary: a specific note when G68.2 planes were found (still not
-    // simulated for stock removal - see NOTES.md), otherwise fall back to the old
-    // generic warning for any other unaccounted rotary motion.
+    // Tilted-plane summary: a plain note when G68.2 planes were found (each is simulated in its
+    // own frame), otherwise the generic warning for any other unaccounted rotary motion.
     if (planes.length > 1) {
       const tilted = PL.filter(p => p !== 0).length;
-      notes.push(`Uses ${planes.length - 1} tilted work plane(s) (G68.2/G53.1) across ${tilted} move(s). Stock removal for those is not yet simulated correctly - shown using the base orientation for now.`);
+      notes.push(`Uses ${planes.length - 1} tilted work plane(s) (G68.2/G53.1) across ${tilted} move(s).`);
     } else if (sawRotary) {
       warn('Rotary axis moves (A/B/C) are ignored');
     }

@@ -1154,12 +1154,11 @@ const NC = (() => {
       if (words.length) block(words, li + 1);
     }
 
-    // Tilted-plane summary: a specific note when G68.2 planes were found (still not
-    // simulated for stock removal - see NOTES.md), otherwise fall back to the old
-    // generic warning for any other unaccounted rotary motion.
+    // Tilted-plane summary: a plain note when G68.2 planes were found (each is simulated in its
+    // own frame), otherwise the generic warning for any other unaccounted rotary motion.
     if (planes.length > 1) {
       const tilted = PL.filter(p => p !== 0).length;
-      notes.push(`Uses ${planes.length - 1} tilted work plane(s) (G68.2/G53.1) across ${tilted} move(s). Stock removal for those is not yet simulated correctly - shown using the base orientation for now.`);
+      notes.push(`Uses ${planes.length - 1} tilted work plane(s) (G68.2/G53.1) across ${tilted} move(s).`);
     } else if (sawRotary) {
       warn('Rotary axis moves (A/B/C) are ignored');
     }
@@ -2574,7 +2573,8 @@ function checkSetup(P, st, setup, chained) {
   const out = [];
   if (!setup) return out;
   const R = Math.max(...P.tools.map(t => t.D / 2)); let near = 0, n = 0;
-  for (let i = 0; i < P.n; i++) if (P.K[i]) {
+  // base-plane moves only: a tilted plane's moves are in its own local frame, not the stock box's
+  for (let i = 0; i < P.n; i++) if (P.K[i] && !(P.PL && P.PL[i])) {
     n++;
     if (P.X[i] > st.xmin - R && P.X[i] < st.xmax + R && P.Y[i] > st.ymin - R && P.Y[i] < st.ymax + R && P.Z[i] > st.zbot - 1 && P.Z[i] < st.ztop + 1) near++;
   }

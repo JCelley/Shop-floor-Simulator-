@@ -84,6 +84,10 @@ t81 = toolFrom(setupWith('TOOLGEOM 81 TYPE=LOLLIPOP_MILL US=UI D=0.1875 SHAFT=0.
 ok(!t81.neckGuess && near(t81.neckD, 0.09 * 25.4, 0.01), 'a named neck/shoulder parameter wins over the shaft sections');
 t81 = toolFrom(setupWith('TOOLGEOM 81 TYPE=LOLLIPOP_MILL US=UI D=0.1875 SHAFT=EMPTY P_shoulderDiameter=0.1875'));
 ok(t81.neckGuess === true, 'a "neck" as wide as the cutter is ignored, still a guess');
+// the real line v2.7.2 wrote for APW's 3/16 lollipop (O1224, posted 2026-09-24): the 0.115" neck
+// is P_shoulderDiameter (P_neckDiameter is NA)
+t81 = toolFrom(setupWith('TOOLGEOM 81 TYPE=LOLLIPOP_MILL US=UI D=0.1875 CR=0.0937 TA=0 FL=0.16 SL=1.16 SHD=0.1875 BL=1.4 OAL=2.5 SHAFT=0.115:0/0.1875:0.075 P_shoulderDiameter=0.115 P_neckDiameter=NA P_shaftDiameter=0.115 P_shoulderLength=1.16 P_fluteLength=0.16 P_bodyLength=1.4 P_taperAngle=0 P_tipDiameter=0'));
+ok(!t81.neckGuess && near(t81.neckD, 0.115 * 25.4, 0.001), `real v2.7.2 output: neck 0.115" (${t81.neckD.toFixed(3)} mm), not a guess`);
 ok(NC.parseCimcoSetup(setupWith('TOOLGEOM 81 TYPE=X')).tools.length === 1, 'the TOOLGEOM line does not add a second tool');
 
 // ---- real job: O1224's T81 lollipop on tilted plane 7 now actually removes material
