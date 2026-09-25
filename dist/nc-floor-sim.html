@@ -432,7 +432,15 @@ const NC = (() => {
   // Undercut-shaped tools (wider cutting profile than the neck behind it) cannot be represented by a
   // one-height-per-column height field - see docs/NOTES.md. Detected by name only; stock removal for
   // these is skipped (toolpath shown, nothing cut) rather than simulated wrong.
-  const UNDERCUT_RE = /T[- ]?SLOT|DOVETAIL|WOODRUFF|KEYSEAT|LOLLIPOP|UNDERCUT|BACK[- ]?CHAMFER|BACK[- ]?COUNTERBORE|BACK[- ]?SPOT/i;
+  const UNDERCUT_RE = /T[- ]?SLOT|SLOT MILL|DOVETAIL|WOODRUFF|KEYSEAT|LOLLIPOP|UNDERCUT|BACK[- ]?CHAMFER|BACK[- ]?COUNTERBORE|BACK[- ]?SPOT/i;
+  // Which undercut shape a name describes (see undercutProfile). "SLOT MILL" is what the posted
+  // .setup file calls Fusion's slot-mill (T-slot) tool type.
+  function undercutKind(name) {
+    const s = String(name || '').toUpperCase();
+    if (/LOLLIPOP/.test(s)) return 'lollipop';
+    if (/DOVETAIL|BACK[- ]?CHAMFER/.test(s)) return 'dovetail';
+    return 'slot';
+  }
 
   /* ---------- tool model ---------- */
   function typeFromText(s) {
@@ -463,6 +471,16 @@ const NC = (() => {
     t.stick = Math.max(t.stick, t.flute + 2);
     if (!(t.holderD > 0)) t.holderD = Math.max(32, t.D + 16);
     if (!(t.holderH > 0)) t.holderH = 55;
+    if (t.undercut) {
+      t.ucType = t.ucType || undercutKind(t.name);
+      // The neck is what makes it an undercut tool, and older posted files don't carry it (the
+      // .setup's "SD" is just the cutting diameter again - see post v2.7.2). Without a real one, a
+      // clearly-labelled guess: close enough to show roughly what the tool reaches, never exact.
+      if (t.neckGuess || !(t.neckD > 0 && t.neckD < t.D)) { t.neckD = t.D * (t.ucType === 'lollipop' ? 0.6 : 0.5); t.neckGuess = true; }
+      if (t.headGuess || !(t.headH > 0)) { t.headH = t.ucType === 'lollipop' ? t.D : Math.max(t.D * 0.25, 0.5); if (t.ucType !== 'lollipop') t.headGuess = true; }
+      if (!(t.flank > 0)) t.flank = 45;
+      if (t.ucType === 'lollipop') t.headH = t.D;
+    }
     return t;
   }
 
@@ -470,6 +488,10 @@ const NC = (() => {
   // surface above the tip at horizontal distance d from the axis.
   function simTool(t) {
     const R = (t.D || 6) / 2, undercut = !!t.undercut;
+    if (undercut && t.ucType && t.neckD > 0) {
+      const ucProf = undercutProfile(t);
+      return { R, kind: 0, rc: 0, r0: R, slope: 0, undercut, ucProf, Rmax: Math.max(...ucProf.map(p => p[1])) };
+    }
     if (t.type === 'ball') return { R, kind: 1, rc: R, r0: 0, slope: 0, undercut };
     if (t.type === 'bull') { const rc = Math.min(t.rc || 0.5, R); return { R, kind: 2, rc, r0: R - rc, slope: 0, undercut }; }
     if (t.type === 'drill' || t.type === 'chamfer') {
@@ -722,6 +744,13 @@ const NC = (() => {
         curHolder.segments.push({ upperDia: +m[1], lowerDia: +m[2], length: +m[3] });
         continue;
       }
+      // Post v2.7.2+: every candidate source of the tool's real neck size (see that post's notes).
+      if ((m = /^TOOLGEOM\s+(\d+)\s+(.*)$/i.exec(line))) {
+        const fields = {};
+        for (const tok of m[2].split(/\s+/)) { const eq = tok.indexOf('='); if (eq > 0) fields[tok.slice(0, eq)] = tok.slice(eq + 1); }
+        out.toolGeom = out.toolGeom || new Map(); out.toolGeom.set(+m[1], fields);
+        continue;
+      }
       if ((m = /^TOOL\s+(\d+)\s+"([^"]*)"\s+(.*)$/i.exec(line))) {
         const fields = {};
         for (const tok of m[3].split(/\s+/)) { const eq = tok.indexOf('='); if (eq > 0) fields[tok.slice(0, eq)] = tok.slice(eq + 1); }
@@ -760,6 +789,7 @@ const NC = (() => {
         const A = num('A'); if (A > 0) t.tip = A * 180 / Math.PI * 2;
       }
       if (ct.name) t.name = ct.name;
+      if (t.undercut) applyUndercutGeometry(t, f, parsed.toolGeom && parsed.toolGeom.get(ct.no), k);
       const holder = ct.holderId ? parsed.holders.get(ct.holderId) : null;
       if (holder && holder.segments.length) {
         const hk = holder.unit === 'UI' ? 25.4 : 1;
@@ -787,6 +817,28 @@ const NC = (() => {
       matched++;
     }
     return matched;
+  }
+
+  // Undercut tool geometry from a posted .setup: its TOOL line (k = inch/mm factor) and, from post
+  // v2.7.2 on, its TOOLGEOM line. Neck diameter, in order of preference: a tool parameter that names
+  // it; the first shaft section thinner than the cutter; the TOOL line's shaft diameter AD when
+  // thinner than the cutter. None of those -> left for completeTool's labelled guess.
+  // UNVERIFIED which of these Fusion actually fills - one real v2.7.2 post settles it.
+  function applyUndercutGeometry(t, f, g, k) {
+    t.ucType = undercutKind(t.name);
+    const n = v => { const x = parseFloat(v); return isFinite(x) && x > 0 ? x : null; };
+    const gk = g ? (g.US === 'UM' ? 1 : 25.4) : k, D = t.D;
+    const cands = [];
+    if (g) {
+      cands.push(n(g.P_shoulderDiameter), n(g.P_neckDiameter));
+      if (g.SHAFT && g.SHAFT !== 'NA' && g.SHAFT !== 'EMPTY') for (const s of g.SHAFT.split('/')) cands.push(n(s.split(':')[0]));
+    }
+    const neck = cands.map(v => v && v * gk).find(v => v && v < D - 1e-6) || (n(f.AD) && n(f.AD) * k < D - 1e-6 ? n(f.AD) * k : null);
+    if (neck) { t.neckD = neck; t.neckGuess = false; }
+    const sh = n(f.AD) || (g && n(g.SHD)); if (sh) t.shankD = sh * (n(f.AD) ? k : gk);
+    const sl = n(f.SL) || (g && n(g.SL)); if (sl) t.neckL = sl * (n(f.SL) ? k : gk);
+    const fl = n(f.FL) || (g && n(g.FL)); if (fl && t.ucType !== 'lollipop') { t.headH = fl * (n(f.FL) ? k : gk); t.headGuess = false; }
+    const a = n(f.A) || (g && n(g.TA)); if (a && t.ucType === 'dovetail') t.flank = a * 180 / Math.PI;
   }
 
   function cimcoBBox(mesh) {
@@ -1186,11 +1238,44 @@ const NC = (() => {
       this.op = new Uint16Array(this.nx * this.ny);
       this.reset();
     }
-    reset() { this.h.fill(this.zTop); this.op.fill(0); this.markAll(); }
+    // voids: column index -> [a0, b0, a1, b1, ...], sorted, disjoint pockets of removed material
+    // strictly below that column's top h. The column's material is [zBot, h] minus these. Only
+    // undercut tools (lollipop, T-slot, dovetail) ever make one - every other cut just lowers h.
+    reset() { this.h.fill(this.zTop); this.op.fill(0); this.voids = new Map(); this.markAll(); }
     clearDirty() { this.di0 = 1e9; this.di1 = -1; this.dj0 = 1e9; this.dj1 = -1; }
     markAll() { this.di0 = 0; this.di1 = this.nx - 1; this.dj0 = 0; this.dj1 = this.ny - 1; }
-    snapshot() { return { h: this.h.slice(), op: this.op.slice() }; }
-    restore(s) { this.h.set(s.h); this.op.set(s.op); this.markAll(); }
+    snapshot() { return { h: this.h.slice(), op: this.op.slice(), voids: new Map([...this.voids].map(([k, v]) => [k, v.slice()])) }; }
+    restore(s) { this.h.set(s.h); this.op.set(s.op); this.voids = s.voids ? new Map([...s.voids].map(([k, v]) => [k, v.slice()])) : new Map(); this.markAll(); }
+    // The column's top was lowered to hz: pockets now at or above it are open to the air, so the
+    // real top drops to the bottom of any pocket the new top reached into.
+    settleTop(idx, hz) {
+      const v = this.voids.get(idx);
+      if (!v) return hz;
+      let n = v.length;
+      while (n > 0 && v[n - 1] >= hz) { if (v[n - 2] < hz) hz = v[n - 2]; n -= 2; }
+      if (n === 0) this.voids.delete(idx); else v.length = n;
+      return hz < this.zBot ? this.zBot : hz;
+    }
+    // Remove [a, b] (local z) from one column: lowers the top if it reaches it, otherwise carves
+    // or widens a pocket below it. Returns true if anything changed.
+    removeRange(idx, a, b, opId) {
+      const h = this.h[idx], zb = this.zBot;
+      if (a < zb) a = zb;
+      if (b <= a || a >= h) return false;
+      if (b >= h) { this.h[idx] = this.settleTop(idx, a); this.op[idx] = opId; return true; }
+      let v = this.voids.get(idx);
+      if (!v) { this.voids.set(idx, [a, b]); this.op[idx] = opId; return true; }
+      const out = []; let placed = false;
+      for (let k = 0; k < v.length; k += 2) {
+        const c = v[k], d = v[k + 1];
+        if (d < a) out.push(c, d);
+        else if (c > b) { if (!placed) { out.push(a, b); placed = true; } out.push(c, d); }
+        else { if (c < a) a = c; if (d > b) b = d; }
+      }
+      if (!placed) out.push(a, b);
+      this.voids.set(idx, out); this.op[idx] = opId;
+      return true;
+    }
 
     // Remove everything the tool sweeps between (ax,ay,az) and (bx,by,bz).
     // Exact for the swept envelope of vertical-axis tools whose profile is
@@ -1206,7 +1291,7 @@ const NC = (() => {
       const Dx = bx - ax, Dy = by - ay, dz = bz - az, L2 = Dx * Dx + Dy * Dy, R2 = R * R, kind = T.kind;
       const vertical = L2 < 1e-6, planar = dz > -1e-6 && dz < 1e-6;
       const short = L2 < (R * 0.75) * (R * 0.75);
-      const zBot = this.zBot, opa = this.op;
+      const zBot = this.zBot, opa = this.op, vd = this.voids;
       let m0 = 1e9, m1 = -1, n0 = 1e9, n1 = -1;
       for (let j = j0; j <= j1; j++) {
         const uy = y0 + (j + 0.5) * dy - ay, row = j * nx;
@@ -1253,7 +1338,7 @@ const NC = (() => {
           if (hz < cur) {
             if (hz < zBot) hz = zBot;
             if (hz < cur) {
-              h[idx] = hz; opa[idx] = opId;
+              h[idx] = vd.size && vd.has(idx) ? this.settleTop(idx, hz) : hz; opa[idx] = opId;
               if (i < m0) m0 = i; if (i > m1) m1 = i; if (j < n0) n0 = j; if (j > n1) n1 = j;
             }
           }
@@ -1264,6 +1349,92 @@ const NC = (() => {
         if (n0 < this.dj0) this.dj0 = n0; if (n1 > this.dj1) this.dj1 = n1;
       }
     }
+
+    // An undercut tool (T.ucProf: radius against height above the tip, see undercutProfile). At a
+    // column whose centre is a horizontal distance d from the tool axis, the tool body covers the
+    // heights where its radius is >= d - usually a band with material left above AND below it. For
+    // a flat side pass (what these tools almost always do) d is the column's distance to the move,
+    // so the removed set is that band at the move's height - exact. For a straight plunge the band
+    // just stretches over the plunge's height range - also exact. A move that changes XY and Z
+    // together is split into pieces no taller than 0.05mm and treated the same way (over-cuts by
+    // at most that). This is why it's fast: no sampling of tool positions along the move.
+    cutUndercut(ax, ay, az, bx, by, bz, T, opId) {
+      const R = T.Rmax, nx = this.nx, ny = this.ny, dx = this.dx, dy = this.dy, x0 = this.x0, y0 = this.y0;
+      // The band only depends on distance from the axis, so it's tabulated once per tool (512 steps
+      // across the tool's radius, ~0.005mm apart on a 5mm cutter) instead of recomputed per column.
+      if (!T.bandLUT) { const N = 512, lut = []; for (let k = 0; k < N; k++) lut.push(profileBand(T.ucProf, R * k / (N - 1))); T.bandLUT = lut; }
+      const lut = T.bandLUT, lk = (lut.length - 1) / R;
+      if (Math.min(az, bz) >= this.zTop) return;
+      const pieces = Math.max(1, (bx - ax) * (bx - ax) + (by - ay) * (by - ay) > 1e-6 ? Math.min(400, Math.ceil(Math.abs(bz - az) / 0.05)) : 1);
+      let m0 = 1e9, m1 = -1, n0 = 1e9, n1 = -1;
+      for (let p = 0; p < pieces; p++) {
+        const pax = ax + (bx - ax) * p / pieces, pay = ay + (by - ay) * p / pieces, paz = az + (bz - az) * p / pieces;
+        const pbx = ax + (bx - ax) * (p + 1) / pieces, pby = ay + (by - ay) * (p + 1) / pieces, pbz = az + (bz - az) * (p + 1) / pieces;
+        const zlo = paz < pbz ? paz : pbz, zhi = paz < pbz ? pbz : paz, Dx = pbx - pax, Dy = pby - pay, L2 = Dx * Dx + Dy * Dy;
+        let i0 = Math.floor((Math.min(pax, pbx) - R - x0) / dx), i1 = Math.floor((Math.max(pax, pbx) + R - x0) / dx);
+        let j0 = Math.floor((Math.min(pay, pby) - R - y0) / dy), j1 = Math.floor((Math.max(pay, pby) + R - y0) / dy);
+        if (i0 < 0) i0 = 0; if (j0 < 0) j0 = 0; if (i1 > nx - 1) i1 = nx - 1; if (j1 > ny - 1) j1 = ny - 1;
+        for (let j = j0; j <= j1; j++) {
+          const uy = y0 + (j + 0.5) * dy - pay;
+          for (let i = i0; i <= i1; i++) {
+            const ux = x0 + (i + 0.5) * dx - pax;
+            let t = L2 > 1e-12 ? (ux * Dx + uy * Dy) / L2 : 0; if (t < 0) t = 0; else if (t > 1) t = 1;
+            const ex = ux - t * Dx, ey = uy - t * Dy, d = Math.sqrt(ex * ex + ey * ey);
+            if (d > R) continue;
+            const band = lut[Math.round(d * lk)], idx = j * nx + i;
+            if (!band.length) continue;
+            let hit = false;
+            for (let k = 0; k < band.length; k += 2) if (this.removeRange(idx, zlo + band[k], zhi + band[k + 1], opId)) hit = true;
+            if (hit) { if (i < m0) m0 = i; if (i > m1) m1 = i; if (j < n0) n0 = j; if (j > n1) n1 = j; }
+          }
+        }
+      }
+      if (m1 >= 0) {
+        if (m0 < this.di0) this.di0 = m0; if (m1 > this.di1) this.di1 = m1;
+        if (n0 < this.dj0) this.dj0 = n0; if (n1 > this.dj1) this.dj1 = n1;
+      }
+    }
+  }
+
+  // Heights above the tip where a piecewise-linear profile [[u, r], ...] has radius >= d, as a flat
+  // list [u0, u1, u2, u3, ...] of merged intervals.
+  function profileBand(prof, d) {
+    const out = [];
+    const add = (a, b) => { if (b < a) return; const n = out.length; if (n && a <= out[n - 1] + 1e-9) { if (b > out[n - 1]) out[n - 1] = b; } else out.push(a, b); };
+    for (let k = 0; k + 1 < prof.length; k++) {
+      const u0 = prof[k][0], r0 = prof[k][1], u1 = prof[k + 1][0], r1 = prof[k + 1][1];
+      if (r0 >= d && r1 >= d) add(u0, u1);
+      else if (r0 >= d || r1 >= d) {
+        const uc = u1 - u0 < 1e-12 ? u0 : u0 + (u1 - u0) * (d - r0) / (r1 - r0);
+        if (r0 >= d) add(u0, uc); else add(uc, u1);
+      }
+    }
+    return out;
+  }
+
+  // Undercut tool shape as radius against height above the tip, from the tip up through the neck
+  // to the shank. The neck is what lets it undercut, and a posted file may not say how thin it is
+  // (see t.neckGuess / completeTool).
+  //   lollipop: a ball of D, then the neck.
+  //   slot (T-slot, woodruff, keyseat): a disk D wide and headH tall, then the neck.
+  //   dovetail / back chamfer: a cone from D at the tip narrowing upward over headH at the flank
+  //     angle, then the neck. (Angle read as the flank's angle from the tool axis, like a chamfer
+  //     mill's - UNVERIFIED against a real posted dovetail.)
+  function undercutProfile(t) {
+    const R = t.D / 2, rn = Math.min(Math.max(t.neckD / 2, 0.05), R * 0.98), rs = Math.max(t.shankD > 0 ? t.shankD / 2 : R, rn);
+    const pts = [];
+    if (t.ucType === 'lollipop') {
+      const tmax = Math.PI - Math.asin(rn / R);
+      for (let k = 0; k <= 16; k++) { const th = tmax * k / 16; pts.push([R - R * Math.cos(th), R * Math.sin(th)]); }
+    } else if (t.ucType === 'dovetail') {
+      const hH = t.headH, top = Math.max(rn, R - hH * Math.tan((t.flank || 45) * Math.PI / 180));
+      pts.push([0, R], [hH, top], [hH, rn]);
+    } else pts.push([0, R], [t.headH, R], [t.headH, rn]);
+    const neckEnd = Math.max(pts[pts.length - 1][0], t.neckL > 0 ? t.neckL : t.stick);
+    pts.push([neckEnd, rn]);
+    if (rs > rn && t.stick > neckEnd) pts.push([neckEnd, rs], [t.stick, rs]);
+    else if (t.stick > neckEnd) pts.push([t.stick, rn]);
+    return pts;
   }
 
   // cut part f0..f1 of move i (feed moves only; rapids do not cut)
@@ -1277,8 +1448,10 @@ const NC = (() => {
     const sx = i > 0 ? P.X[i - 1] : P.init.x, sy = i > 0 ? P.Y[i - 1] : P.init.y, sz = i > 0 ? P.Z[i - 1] : P.init.z;
     const ex = P.X[i], ey = P.Y[i], ez = P.Z[i];
     const T = simTools.get(P.TL[i]);
-    if (!T || T.undercut) return;   // undercut tools (T-slot/dovetail/lollipop) shown as toolpath only
-    sim.cut(sx + (ex - sx) * f0, sy + (ey - sy) * f0, sz + (ez - sz) * f0,
+    if (!T) return;
+    const cut = T.undercut ? (T.ucProf ? sim.cutUndercut : null) : sim.cut;
+    if (!cut) return;
+    cut.call(sim, sx + (ex - sx) * f0, sy + (ey - sy) * f0, sz + (ez - sz) * f0,
             sx + (ex - sx) * f1, sy + (ey - sy) * f1, sz + (ez - sz) * f1, T, P.OP[i] + 1);
   }
 
@@ -1681,14 +1854,15 @@ const NC = (() => {
     const box = td.box;
     const al = [...td.grids.entries()].map(([key, g]) => {
       const a = arrays && arrays.get(key);
-      return { g, axis: 'XYZ'.indexOf(key[0]), sign: key[1] === '+' ? 1 : -1, h: blurHeights(a ? a.h : g.h, g.nx, g.ny), op: a ? a.op : g.op };
+      return { g, axis: 'XYZ'.indexOf(key[0]), sign: key[1] === '+' ? 1 : -1, h: blurHeights(a ? a.h : g.h, g.nx, g.ny), op: a ? a.op : g.op, vd: (a ? a.voids : g.voids) || new Map() };
     });
     const ob = obliqueSims ? [...obliqueSims.entries()].map(([id, sim]) => {
       const a = arrays && arrays.get('p' + id), p = planeById.get(id);
-      return { g: sim, m: p.matrix, o: p.origin, h: blurHeights(a ? a.h : sim.h, sim.nx, sim.ny), op: a ? a.op : sim.op };
+      return { g: sim, m: p.matrix, o: p.origin, h: blurHeights(a ? a.h : sim.h, sim.nx, sim.ny), op: a ? a.op : sim.op, vd: (a ? a.voids : sim.voids) || new Map() };
     }) : [];
     let lastOp = 0;   // op id of the grid that set the most recent value() result (0 = original stock face)
-    // Bilinear height between the four nearest cell centres; also records the nearest cell's op.
+    // Bilinear height between the four nearest cell centres; also records the nearest cell's op and
+    // the four corners/weights, in case any of those columns has an undercut pocket.
     const hAt = (e, ax, ay) => {
       const g = e.g, nx = g.nx, mx = nx - 1, my = g.ny - 1;
       let u = (ax - g.x0) / g.dx - 0.5, v = (ay - g.y0) / g.dy - 0.5;
@@ -1697,8 +1871,25 @@ const NC = (() => {
       let i = Math.floor(u), j = Math.floor(v);
       if (i >= mx) i = mx - 1; if (j >= my) j = my - 1;
       const fu = u - i, fv = v - j, h = e.h, r0 = j * nx + i, r1 = r0 + nx;
-      e.near = (fv < 0.5 ? r0 : r1) + (fu < 0.5 ? 0 : 1);
+      e.near = (fv < 0.5 ? r0 : r1) + (fu < 0.5 ? 0 : 1); e.r0 = r0; e.fu = fu; e.fv = fv;
       return (h[r0] * (1 - fu) + h[r0 + 1] * fu) * (1 - fv) + (h[r1] * (1 - fu) + h[r1 + 1] * fu) * fv;
+    };
+    // One column's value at local height az, pockets included. bot: whether the grid's zBot is a
+    // real floor (aligned grids: it's the stock bottom) or just the edge of what this grid knows
+    // (oblique planes - see obliquePlaneSolid's Z clipping: no floor there, no opinion).
+    const colVal = (e, idx, az, bot) => {
+      let t = e.h[idx] - az; if (bot) { const tb = az - e.g.zBot; if (tb < t) t = tb; }
+      const v = e.vd.get(idx);
+      if (v) for (let k = 0; k < v.length; k += 2) { const p = v[k] - az > az - v[k + 1] ? v[k] - az : az - v[k + 1]; if (p < t) t = p; }
+      return t;
+    };
+    // The plain bilinear value, or - when any of the four corner columns has a pocket - the
+    // bilinear blend of the four columns' own values.
+    const withVoids = (e, hv, az, bot) => {
+      const vd = e.vd, r0 = e.r0, r1 = r0 + e.g.nx;
+      if (!vd.size || !(vd.has(r0) || vd.has(r0 + 1) || vd.has(r1) || vd.has(r1 + 1))) { let t = hv - az; if (bot) { const tb = az - e.g.zBot; if (tb < t) t = tb; } return t; }
+      const fu = e.fu, fv = e.fv;
+      return (colVal(e, r0, az, bot) * (1 - fu) + colVal(e, r0 + 1, az, bot) * fu) * (1 - fv) + (colVal(e, r1, az, bot) * (1 - fu) + colVal(e, r1 + 1, az, bot) * fu) * fv;
     };
     function value(x, y, z) {
       let f = x - box.xmin, t; lastOp = 0;
@@ -1708,8 +1899,7 @@ const NC = (() => {
         const e = al[k];
         let ax, ay, az;
         if (e.axis === 2) { ax = x; ay = y; az = e.sign * z; } else if (e.axis === 0) { ax = y; ay = z; az = e.sign * x; } else { ax = z; ay = x; az = e.sign * y; }
-        t = hAt(e, ax, ay) - az;
-        const tb = az - e.g.zBot; if (tb < t) t = tb;
+        t = withVoids(e, hAt(e, ax, ay), az, true);
         if (t < f) { f = t; lastOp = e.op[e.near]; }
       }
       for (let k = 0; k < ob.length; k++) {
@@ -1717,7 +1907,7 @@ const NC = (() => {
         const lx = m[0][0] * dx + m[1][0] * dy + m[2][0] * dz, ly = m[0][1] * dx + m[1][1] * dy + m[2][1] * dz, lz = m[0][2] * dx + m[1][2] * dy + m[2][2] * dz;
         const ci = Math.floor((lx - g.x0) / g.dx), cj = Math.floor((ly - g.y0) / g.dy);
         if (ci < 0 || cj < 0 || ci >= g.nx || cj >= g.ny || e.op[cj * g.nx + ci] === 0 || lz < g.zBot) continue;   // no opinion here
-        t = hAt(e, lx, ly) - lz;
+        t = withVoids(e, hAt(e, lx, ly), lz, false);
         if (t < f) { f = t; lastOp = e.op[cj * g.nx + ci]; }
       }
       return f;
@@ -1967,7 +2157,7 @@ const NC = (() => {
   }
 
   return { parseProgram, completeTool, simTool, prof, holderSegments, applyLibrary, typeFromText, parseSetupCsv, applyCsvTools, unzipText, guessFromName,
-           HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti,
+           HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti, undercutProfile, profileBand, undercutKind,
            planeAxisWorld, classifyPlanes, undercutOnlyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel, obliquePlaneSolid, stockField, surfaceNets, meshTriDexelSmooth,
            parseStlBinary, parseCimcoSetup, applyCimcoTools, cimcoToFloorsimSetup,
            meshFromHeightArray, transformPoints, seedHeightSim,
@@ -2308,6 +2498,9 @@ function latheZ(points, segs, mat) {
 }
 function cutterProfile(t) {
   const R = t.D / 2, Lc = t.flute, T = NC.simTool(t), pr = [];
+  // Undercut tools: draw the same ball/disk/cone-then-neck shape that does the cutting.
+  // ucProf is [height, radius]; the lathe wants [radius, height].
+  if (T.ucProf) { const p = T.ucProf.filter(q => q[0] <= t.stick).map(q => [q[1], q[0]]); return (p[0][0] > 0 ? [[0, 0]] : []).concat(p); }
   if (t.type === 'ball') { for (let a = 0; a <= 90; a += 10) { const r = a * Math.PI / 180; pr.push([R * Math.sin(r), R - R * Math.cos(r)]); } }
   else if (t.type === 'bull') { pr.push([0, 0], [T.r0, 0]); for (let a = 10; a <= 90; a += 10) { const r = a * Math.PI / 180; pr.push([T.r0 + T.rc * Math.sin(r), T.rc - T.rc * Math.cos(r)]); } }
   else if (t.type === 'drill' || t.type === 'chamfer') { pr.push([0, 0]); if (T.r0 > 0) pr.push([T.r0, 0]); pr.push([R, (R - T.r0) * T.slope]); }
@@ -2319,7 +2512,7 @@ function makeToolGroup(t) {
   const g = new THREE.Group();
   const side = THREE.DoubleSide;
   g.add(latheZ(cutterProfile(t), 32, new THREE.MeshLambertMaterial({ color: new THREE.Color(toolHex(t.no)), side })));
-  g.add(latheZ([[t.D / 2, t.flute], [t.D / 2, t.stick]], 32, new THREE.MeshLambertMaterial({ color: 0xaab4bf, side })));
+  if (!t.undercut) g.add(latheZ([[t.D / 2, t.flute], [t.D / 2, t.stick]], 32, new THREE.MeshLambertMaterial({ color: 0xaab4bf, side })));
   const hp = [[0.001, t.stick]]; let y = t.stick;
   for (const s of NC.holderSegments(t)) { hp.push([s.d0 / 2, y]); y += s.h; hp.push([s.d1 / 2, y]); }
   hp.push([0.001, y]);
@@ -2612,10 +2805,12 @@ async function loadText(text, name, opts = {}) {
       else extraWarn.push(`This setup uses "from previous setup" stock, but no other setup's simulated result is available this session - using a flat block guess instead. Load the previous setup first, then this one, to chain them.`);
     }
     const usedTools = new Set(P.TL);
-    const undercutTools = P.tools.filter(t => t.undercut && usedTools.has(t.no));
-    if (undercutTools.length) extraWarn.push(`Undercut tool${undercutTools.length === 1 ? '' : 's'} (${undercutTools.map(t => 'T' + t.no).join(', ')}): the shape can't be simulated by this engine, so stock removal is skipped for it - the toolpath still plays, it just doesn't cut.`);
-    const hiddenPlanes = NC.undercutOnlyPlanes(P); hiddenPlanes.delete(0);
-    if (hiddenPlanes.size) extraWarn.push(`${hiddenPlanes.size} tilted plane${hiddenPlanes.size === 1 ? '' : 's'} not shown: every tool cutting ${hiddenPlanes.size === 1 ? 'it is' : 'them is'} an undercut tool, so there's no stock shape to draw there - the toolpath still plays.`);
+    // Undercut tools cut for real now; say so only where their shape had to be guessed.
+    const guessed = P.tools.filter(t => t.undercut && usedTools.has(t.no) && (t.neckGuess || t.headGuess));
+    for (const t of guessed) {
+      const what = [t.neckGuess ? `neck assumed ${Math.round(t.neckD / t.D * 100)}% of the ${+t.D.toFixed(2)} mm cutter` : '', t.headGuess ? `cutting height assumed ${+t.headH.toFixed(2)} mm` : ''].filter(Boolean).join(', ');
+      extraWarn.push(`T${t.no} (${t.ucType === 'lollipop' ? 'lollipop' : t.ucType === 'dovetail' ? 'dovetail' : 'T-slot'}): the posted files don't give its full shape, so ${what}. How far it undercuts is approximate - post with CSV_Cascade_Post v2.7.2 or later for the real shape.`);
+    }
     if (opts.cimcoWarn && opts.cimcoWarn.length) extraWarn.push(...opts.cimcoWarn);
     const lines = info.concat(P.notes), warnList = P.warnings.concat(extraWarn, checkSetup(P, S.stock, setup, !!chainSeed));
     $('warns').innerHTML = lines.map(esc).join('<br>') + (warnList.length ? (lines.length ? '<br>' : '') + '<b>Heads up</b><br>' + warnList.map(esc).join('<br>') : '');
@@ -2896,8 +3091,8 @@ async function prepass(token, sims, td) {
       if (now - last > 30) { showBusy(td ? 'Simulating the whole program (tri-dexel)' : 'Simulating the whole program', i / n); await new Promise(r => setTimeout(r, 0)); if (token !== S.token) return null; last = performance.now(); }
     }
   }
-  const finals = new Map(); for (const [id, sim] of sims) finals.set(id, { h: sim.h.slice(), op: sim.op.slice() });
-  const tdFinals = new Map(); if (td) for (const [key, grid] of td.grids) tdFinals.set(key, { h: grid.h.slice(), op: grid.op.slice() });
+  const finals = new Map(); for (const [id, sim] of sims) finals.set(id, sim.snapshot());
+  const tdFinals = new Map(); if (td) for (const [key, grid] of td.grids) tdFinals.set(key, grid.snapshot());
   return { snaps, finals, tdFinals, ms: performance.now() - t0 };
 }
 async function rebuild(fresh) {
@@ -2913,7 +3108,10 @@ async function rebuild(fresh) {
   // frame for - a single-plane job (the common case) or a multi-plane job with nothing but the
   // base aligned takes exactly today's per-plane path, unchanged, at zero cost/regression risk.
   const cls = NC.classifyPlanes(S.prog.planes, TRI_DEXEL_TOL_DEG);
-  S.triDexel = cls.alignedIds.size > 1;
+  // An undercut tool leaves pockets under the surface, which the flat-job height-field mesh can't
+  // draw - such a job takes the smooth-surface path even when it only uses the base plane.
+  const usedTools = new Set(S.prog.TL);
+  S.triDexel = cls.alignedIds.size > 1 || S.tools.some(t => t.undercut && usedTools.has(t.no));
   // Same condition loadText() uses to pick stockFromSetup over autoStock() - reused here, not a
   // new flag. A tilted plane's own box (boxFromMoves) still needs padding around its moves when
   // there's no real stock box to bound it (we're guessing). But when a real box IS known, the
@@ -2975,14 +3173,8 @@ async function rebuild(fresh) {
   // investigation that made this safe (the oblique clipping fix).
   clearGroup(TILT_ROOT); clearGroup(TRI_ROOT);
   S.planes = new Map();
-  // Stopgap for undercut-only tilted planes (e.g. a lollipop mill's own plane): that plane's stock
-  // never visibly changes (cutMove already skips undercut tools), so drawing it as an untouched
-  // slab for the whole program reads as broken rather than merely unsimulated. Skip it - the tool
-  // still plays its toolpath as normal, there's just no stock shape drawn there. See NOTES.md.
-  const hideUndercutOnly = NC.undercutOnlyPlanes(S.prog);
   for (const pl of S.prog.planes) {
     if (!S.sims.has(pl.id)) continue;
-    if (pl.id !== 0 && hideUndercutOnly.has(pl.id)) continue;
     let stock;
     if (pl.id === 0) stock = STOCK;
     else {
@@ -3105,6 +3297,7 @@ function toolSVG(t) {
     hp.push([sg.d0 / 2, y]); hp.push([sg.d0 / 2 + (sg.d1 / 2 - sg.d0 / 2) * f, y2]); y = y2;
   }
   hp.push([0, y]);
+  if (t.undercut) return P(hp, '#505a65') + P(cutterProfile(t).concat([[0, t.stick]]), toolHex(t.no));
   return P(hp, '#505a65') + P([[0, t.flute], [t.D / 2, t.flute], [t.D / 2, t.stick], [0, t.stick]], '#aab4bf') + P(cutterProfile(t).concat([[0, t.flute]]), toolHex(t.no));
 }
 function coolText(c) { const a = []; if (c & 1) a.push('Flood'); if (c & 2) a.push('Mist'); if (c & 4) a.push('Thru-spindle'); return a.length ? a.join(' + ') : 'Off'; }

@@ -48,13 +48,20 @@ const ready = async () => { await sleep(300); for (let i = 0; i < 600 && !w.__fl
   const triTris = triMeshes.length ? triMeshes[0].geometry.index.count / 3 : 0;
   ok(triTris > 0, `the fused mesh has real triangles (${triTris})`);
 
-  // Plane 7's only tool is T81, a lollipop mill (undercut) - stock removal is always skipped for
-  // it, so its separate slab never visibly changes. Drawing an eternally-untouched block reads as
-  // broken rather than merely unsimulated, so the stopgap (2026-09-22) is to not draw it at all -
-  // the toolpath still plays, there's just no stock shape for that plane. See NOTES.md.
-  ok(F.TILT_ROOT.children.length === 0, 'TILT_ROOT is empty - plane 7 is undercut-only, so its stock is not drawn, got ' + F.TILT_ROOT.children.length);
-  ok(S.planes.size === 0, 'S.planes holds nothing - the only oblique plane (id 7) is undercut-only and hidden: ' + [...S.planes.keys()]);
+  // Plane 7 is cut only by T81, the lollipop. Undercut tools used to be skipped, so its slab was
+  // hidden; now they really cut, so plane 7 has its own sim (fused into TRI_ROOT's surface, its
+  // separate slab kept invisible) and genuinely loses material by the end of the program.
+  ok(S.planes.size === 1 && S.planes.has(7), 'S.planes holds the oblique plane 7 (the lollipop plane): ' + [...S.planes.keys()]);
+  ok(F.TILT_ROOT.children.every(g => !g.visible), 'its own separate slab is not drawn - TRI_ROOT covers it');
   ok(S.sims.has(7), 'plane 7 is still simulated under the hood (just not drawn) - S.sims still has it');
+  // the lollipop is drawn as a lollipop: no wider than its ball (a swapped height/radius once drew
+  // it as a disk as wide as its stick-out)
+  {
+    const t81 = S.tools.find(t => t.no === 81), cutter = F.toolGroups.get(81).children[0];
+    cutter.geometry.computeBoundingBox();
+    const bb = cutter.geometry.boundingBox, w = bb.max.x - bb.min.x, h = bb.max.z - bb.min.z;
+    ok(Math.abs(w - t81.D) < 0.05 && h > t81.D, `T81 drawn ${w.toFixed(2)} mm wide (ball ${t81.D.toFixed(2)}) and ${h.toFixed(1)} mm long`);
+  }
   ok(F.STOCK.group.visible === false, 'the base-plane STOCK mesh is hidden - TRI_ROOT covers plane 0 now');
 
   // cimcoToFloorsimSetup emits ONE fixture entry (the whole real FIXTURE.stl as a single merged

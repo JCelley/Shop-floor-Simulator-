@@ -42,16 +42,15 @@ const ok = (c, m) => { if (!c) { fails++; console.log('FAIL', m); } else console
     return {
       triMeshes: F.TRI_ROOT.children.filter(c => c.isMesh).length,
       triTris: triMesh ? triMesh.geometry.index.count / 3 : 0,
-      tiltChildren: F.TILT_ROOT.children.length,
+      tiltVisible: F.TILT_ROOT.children.filter(g => g.visible).length,
       fixtureBodies: F.fixScene.children.length,
     };
   });
   ok(state.triMeshes === 1, `real browser: TRI_ROOT has exactly one mesh, got ${state.triMeshes}`);
   ok(state.triTris > 0, `real browser: fused mesh has real triangles (${state.triTris})`);
-  // Plane 7 (the oblique one) is cut only by T81, a lollipop mill - an undercut tool, so stock
-  // removal is always skipped there. Its slab would never visibly change, so it's not drawn at all
-  // (stopgap, 2026-09-22) - see tridexelPage.test.js and NOTES.md for the full reasoning.
-  ok(state.tiltChildren === 0, `real browser: TILT_ROOT is empty - plane 7 is undercut-only and hidden, got ${state.tiltChildren}`);
+  // Plane 7 (the oblique one, cut by T81, a lollipop) is part of TRI_ROOT's one fused surface; its
+  // own separate slab exists but is never drawn.
+  ok(state.tiltVisible === 0, `real browser: no separate tilted-plane slab drawn, got ${state.tiltVisible}`);
   ok(state.fixtureBodies === 45, `real browser: 45 workholding bodies drawn, got ${state.fixtureBodies}`);
 
   // canvas actually drew something real - same read-pixels-right-after-a-forced-render pattern as

@@ -329,6 +329,9 @@ function latheZ(points, segs, mat) {
 }
 function cutterProfile(t) {
   const R = t.D / 2, Lc = t.flute, T = NC.simTool(t), pr = [];
+  // Undercut tools: draw the same ball/disk/cone-then-neck shape that does the cutting.
+  // ucProf is [height, radius]; the lathe wants [radius, height].
+  if (T.ucProf) { const p = T.ucProf.filter(q => q[0] <= t.stick).map(q => [q[1], q[0]]); return (p[0][0] > 0 ? [[0, 0]] : []).concat(p); }
   if (t.type === 'ball') { for (let a = 0; a <= 90; a += 10) { const r = a * Math.PI / 180; pr.push([R * Math.sin(r), R - R * Math.cos(r)]); } }
   else if (t.type === 'bull') { pr.push([0, 0], [T.r0, 0]); for (let a = 10; a <= 90; a += 10) { const r = a * Math.PI / 180; pr.push([T.r0 + T.rc * Math.sin(r), T.rc - T.rc * Math.cos(r)]); } }
   else if (t.type === 'drill' || t.type === 'chamfer') { pr.push([0, 0]); if (T.r0 > 0) pr.push([T.r0, 0]); pr.push([R, (R - T.r0) * T.slope]); }
@@ -340,7 +343,7 @@ function makeToolGroup(t) {
   const g = new THREE.Group();
   const side = THREE.DoubleSide;
   g.add(latheZ(cutterProfile(t), 32, new THREE.MeshLambertMaterial({ color: new THREE.Color(toolHex(t.no)), side })));
-  g.add(latheZ([[t.D / 2, t.flute], [t.D / 2, t.stick]], 32, new THREE.MeshLambertMaterial({ color: 0xaab4bf, side })));
+  if (!t.undercut) g.add(latheZ([[t.D / 2, t.flute], [t.D / 2, t.stick]], 32, new THREE.MeshLambertMaterial({ color: 0xaab4bf, side })));
   const hp = [[0.001, t.stick]]; let y = t.stick;
   for (const s of NC.holderSegments(t)) { hp.push([s.d0 / 2, y]); y += s.h; hp.push([s.d1 / 2, y]); }
   hp.push([0.001, y]);
@@ -633,10 +636,12 @@ async function loadText(text, name, opts = {}) {
       else extraWarn.push(`This setup uses "from previous setup" stock, but no other setup's simulated result is available this session - using a flat block guess instead. Load the previous setup first, then this one, to chain them.`);
     }
     const usedTools = new Set(P.TL);
-    const undercutTools = P.tools.filter(t => t.undercut && usedTools.has(t.no));
-    if (undercutTools.length) extraWarn.push(`Undercut tool${undercutTools.length === 1 ? '' : 's'} (${undercutTools.map(t => 'T' + t.no).join(', ')}): the shape can't be simulated by this engine, so stock removal is skipped for it - the toolpath still plays, it just doesn't cut.`);
-    const hiddenPlanes = NC.undercutOnlyPlanes(P); hiddenPlanes.delete(0);
-    if (hiddenPlanes.size) extraWarn.push(`${hiddenPlanes.size} tilted plane${hiddenPlanes.size === 1 ? '' : 's'} not shown: every tool cutting ${hiddenPlanes.size === 1 ? 'it is' : 'them is'} an undercut tool, so there's no stock shape to draw there - the toolpath still plays.`);
+    // Undercut tools cut for real now; say so only where their shape had to be guessed.
+    const guessed = P.tools.filter(t => t.undercut && usedTools.has(t.no) && (t.neckGuess || t.headGuess));
+    for (const t of guessed) {
+      const what = [t.neckGuess ? `neck assumed ${Math.round(t.neckD / t.D * 100)}% of the ${+t.D.toFixed(2)} mm cutter` : '', t.headGuess ? `cutting height assumed ${+t.headH.toFixed(2)} mm` : ''].filter(Boolean).join(', ');
+      extraWarn.push(`T${t.no} (${t.ucType === 'lollipop' ? 'lollipop' : t.ucType === 'dovetail' ? 'dovetail' : 'T-slot'}): the posted files don't give its full shape, so ${what}. How far it undercuts is approximate - post with CSV_Cascade_Post v2.7.2 or later for the real shape.`);
+    }
     if (opts.cimcoWarn && opts.cimcoWarn.length) extraWarn.push(...opts.cimcoWarn);
     const lines = info.concat(P.notes), warnList = P.warnings.concat(extraWarn, checkSetup(P, S.stock, setup, !!chainSeed));
     $('warns').innerHTML = lines.map(esc).join('<br>') + (warnList.length ? (lines.length ? '<br>' : '') + '<b>Heads up</b><br>' + warnList.map(esc).join('<br>') : '');
@@ -917,8 +922,8 @@ async function prepass(token, sims, td) {
       if (now - last > 30) { showBusy(td ? 'Simulating the whole program (tri-dexel)' : 'Simulating the whole program', i / n); await new Promise(r => setTimeout(r, 0)); if (token !== S.token) return null; last = performance.now(); }
     }
   }
-  const finals = new Map(); for (const [id, sim] of sims) finals.set(id, { h: sim.h.slice(), op: sim.op.slice() });
-  const tdFinals = new Map(); if (td) for (const [key, grid] of td.grids) tdFinals.set(key, { h: grid.h.slice(), op: grid.op.slice() });
+  const finals = new Map(); for (const [id, sim] of sims) finals.set(id, sim.snapshot());
+  const tdFinals = new Map(); if (td) for (const [key, grid] of td.grids) tdFinals.set(key, grid.snapshot());
   return { snaps, finals, tdFinals, ms: performance.now() - t0 };
 }
 async function rebuild(fresh) {
@@ -934,7 +939,10 @@ async function rebuild(fresh) {
   // frame for - a single-plane job (the common case) or a multi-plane job with nothing but the
   // base aligned takes exactly today's per-plane path, unchanged, at zero cost/regression risk.
   const cls = NC.classifyPlanes(S.prog.planes, TRI_DEXEL_TOL_DEG);
-  S.triDexel = cls.alignedIds.size > 1;
+  // An undercut tool leaves pockets under the surface, which the flat-job height-field mesh can't
+  // draw - such a job takes the smooth-surface path even when it only uses the base plane.
+  const usedTools = new Set(S.prog.TL);
+  S.triDexel = cls.alignedIds.size > 1 || S.tools.some(t => t.undercut && usedTools.has(t.no));
   // Same condition loadText() uses to pick stockFromSetup over autoStock() - reused here, not a
   // new flag. A tilted plane's own box (boxFromMoves) still needs padding around its moves when
   // there's no real stock box to bound it (we're guessing). But when a real box IS known, the
@@ -996,14 +1004,8 @@ async function rebuild(fresh) {
   // investigation that made this safe (the oblique clipping fix).
   clearGroup(TILT_ROOT); clearGroup(TRI_ROOT);
   S.planes = new Map();
-  // Stopgap for undercut-only tilted planes (e.g. a lollipop mill's own plane): that plane's stock
-  // never visibly changes (cutMove already skips undercut tools), so drawing it as an untouched
-  // slab for the whole program reads as broken rather than merely unsimulated. Skip it - the tool
-  // still plays its toolpath as normal, there's just no stock shape drawn there. See NOTES.md.
-  const hideUndercutOnly = NC.undercutOnlyPlanes(S.prog);
   for (const pl of S.prog.planes) {
     if (!S.sims.has(pl.id)) continue;
-    if (pl.id !== 0 && hideUndercutOnly.has(pl.id)) continue;
     let stock;
     if (pl.id === 0) stock = STOCK;
     else {
@@ -1126,6 +1128,7 @@ function toolSVG(t) {
     hp.push([sg.d0 / 2, y]); hp.push([sg.d0 / 2 + (sg.d1 / 2 - sg.d0 / 2) * f, y2]); y = y2;
   }
   hp.push([0, y]);
+  if (t.undercut) return P(hp, '#505a65') + P(cutterProfile(t).concat([[0, t.stick]]), toolHex(t.no));
   return P(hp, '#505a65') + P([[0, t.flute], [t.D / 2, t.flute], [t.D / 2, t.stick], [0, t.stick]], '#aab4bf') + P(cutterProfile(t).concat([[0, t.flute]]), toolHex(t.no));
 }
 function coolText(c) { const a = []; if (c & 1) a.push('Flood'); if (c & 2) a.push('Mist'); if (c & 4) a.push('Thru-spindle'); return a.length ? a.join(' + ') : 'Off'; }
