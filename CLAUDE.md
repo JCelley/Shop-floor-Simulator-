@@ -19,8 +19,9 @@ Read `docs/NOTES.md` for evidence, file formats, and the decision log. This file
 - Never state a Fusion API name, parameter, or behaviour as fact without checking Autodesk docs or a real sample. Say
   "unverified" when it is. Several early guesses were wrong (see "Hard-won facts").
 - One question at a time. Short answers. No jargon he has to decode.
-- **Privacy:** `fixtures/` holds real customer job data (part SOL1-902195 Outlet Fitting, program O1228). Keep the repo
-  private. Never bundle fixture files into the deployed page.
+- **Privacy:** `fixtures/` holds real customer job data (part SOL1-902195 Outlet Fitting, program O1228). John made the
+  repo public on 2026-09-24 for GitHub Pages, knowing this ("fine if it's public for now") - ask before adding more real
+  job files to it. Never bundle fixture files into the deployed page.
 
 ## Requirements (from John)
 
@@ -41,7 +42,9 @@ Read `docs/NOTES.md` for evidence, file formats, and the decision log. This file
 | `fusion/FloorSimExport.py` (per-setup stock + workholding export) | v1 ran in real Fusion (produced 4 files; exposed an origin-unit bug). v2 fix is tested on fake data and by re-placing v1 output. The new `wcs.originMM` field (for stock chaining) is likewise **not re-run in Fusion** — untested until a fresh export is generated and loaded |
 | `fusion/FloorSimJobExport/` add-in (button + one job file) | Installed and run for real (button now lives in the Milling tab's Actions panel). Not run since the `originMM` addition |
 | Cascading post writes the job JSON | `CSV_Cascade_Post_v2_6_7.cps` writes `<base>.floorsim.json` (stock box + setup name only, no G-code or tool list — see NOTES). **Run for real against O1228**: stock box matched the value already verified via the Python export route to the mm. The proven `CSV_Cascade_Post_v2_6_6.cps` is untouched |
-| Chromebook performance | **Unmeasured.** All timings are desktop Node |
+| Chromebook performance | John ran it on a real shop Chromebook (2026-09-24): "worked really well". Not formally timed |
+| Hosting | Live at https://jcelley.github.io/Shop-floor-Simulator-/ - every push to `main` rebuilds and deploys (`.github/workflows/deploy-pages.yml`). Repo is public by John's choice |
+| Load by program # | Type `O1138` (or `1138`) + Load; folder picked once and remembered (File System Access API + IndexedDB). `?program=O1138` in the link fills it. **Untested on a Chromebook against a Google Shared Drive folder** |
 | Real-browser rendering tests | `tests/browser.test.js` (Playwright/Chromium) renders the page for real and checks pixels, wired into `npm test` |
 
 ## Layout
@@ -85,7 +88,14 @@ npm test           # all suites; needs Node 18+ and Python 3 for the Fusion-side
   (`floorsim-setup`), and the one-file job JSON (`floorsim-job`). Details in NOTES.
 - **"Open job folder"** groups a whole folder's files by program number (strip `.NC`/`.csv`/`.floorsim.json`/`.tools`)
   and either loads the one match instantly or shows a small newest-first picker. "Open job file" (manual multi-select)
-  still exists for edge cases. Only programs with an `.NC` file are offered. Details in NOTES.
+  still exists for edge cases. Only programs with an `.NC` file are offered. Details in NOTES. Where the browser has the
+  File System Access API (Chrome, ChromeOS), the header shows a Program # box + "Folder:" button instead, and "Open job
+  folder" is only the fallback for other browsers.
+- **G-code panel** is one always-editable textarea (no Edit button). Unedited, it steps the sim line by line: click a line,
+  mouse wheel (one notch = one line), Up/Down keys, or the two step buttons. Edits are never saved; "Run edited code" reloads
+  through the normal path, keeping the `.setup` tool/holder data.
+- **Restart seq #**: each op carries `seqN`, the N on its own tool-change (`G100`) line - shown as an `N25` badge and in
+  the "Restart seq #" box. It equals the CSV Seq# whole number on every op checked (O1228, O1138).
 
 ## Known limits (do not "fix" silently, they are design boundaries)
 
@@ -118,7 +128,14 @@ npm test           # all suites; needs Node 18+ and Python 3 for the Fusion-side
 - Fusion tool JSON: `holder.segments[]` has `height`, `lower-diameter`, `upper-diameter`, listed **from the tool end
   upward**. `geometry.LB` is the out-of-holder length (matches OOH in the NC comments).
 - Setup-sheet CSV columns are **mislabelled** (gauge length sits under "Length control Dim", H# under "Gage Length").
-  The parser reads by position.
+  The parser reads by position. Tool names contain bare inch marks (`2.5" Dodeka ...`) - a `"` only starts a quoted field
+  at the very start of a field, or a whole row gets swallowed and op names stop lining up.
+- `.setup` file (Fusion's scanning post): the `WCS` line is the program zero in **mm**, while each mesh's own offset carries
+  its unit flag (`UI` = inches). Meshes go into program coordinates as `offset + R*mesh - WCS`. Inferred from O1138 (a job on
+  a 100mm riser: WCS Z120.193 = offset Z4.732in); ignoring it drew the job 120mm high. A rotated WCS is unverified.
+- Pattern programs (O1138): John programs one part and translates it, so the NC cuts two parts but the setup exports one
+  stock. The second copy cutting air is expected - don't add stock for it.
+- The page must never show the word CIMCO (John: APW branding only). Internal names/comments are fine.
 - Shop tool comment format: `(T57 - NAME - HLDR=... - OOH=1.2 - PRODID=... -LC-72)`. `(FTL-xxxx)` comments are tool-life tags,
   not operation names. Only stand-alone comment lines name operations.
 

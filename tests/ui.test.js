@@ -27,7 +27,24 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(d.getElementById('tNo').textContent === 'T1', 'HUD shows T1 at start: ' + d.getElementById('tNo').textContent);
   ok(/Flat end mill/.test(d.getElementById('tName').textContent), 'tool name: ' + d.getElementById('tName').textContent);
   ok(d.getElementById('tSvg').innerHTML.includes('polygon'), 'tool silhouette drawn');
-  ok(d.getElementById('code').children.length > 5, 'G-code window populated');
+  ok(d.getElementById('code').value === S.text.replace(/\r/g, ''), 'G-code box holds the whole program');
+  ok(d.getElementById('codeGutter').children.length > 5, 'G-code line numbers drawn');
+  ok(d.querySelector('.title img.logo') && /^data:image\/webp;base64,.{1000}/.test(d.querySelector('.title img.logo').src), 'APW logo embedded in the header');
+  ok(d.title === 'APW Floor Sim', 'page title: ' + d.title);
+
+  // Ortho toggle swaps the projection, keeps the same view, and is remembered
+  const proj = d.getElementById('projBtn');
+  ok(F.camera.isPerspectiveCamera && proj.getAttribute('aria-pressed') === 'false', 'starts in perspective');
+  proj.click();
+  ok(F.camera.isOrthographicCamera && proj.getAttribute('aria-pressed') === 'true', 'Ortho button switches to an orthographic camera');
+  const oc = F.camera, halfH = F.orb.dist * Math.tan(35 * Math.PI / 360);
+  ok(Math.abs(oc.top - halfH) < 1e-6 && oc.right > 0, `ortho frustum matches the perspective view's size at the target (top ${oc.top.toFixed(2)} vs ${halfH.toFixed(2)})`);
+  ok(w.localStorage.getItem('floorsim.ortho') === '1', 'ortho choice remembered');
+  d.querySelector('[data-view="top"]').click();
+  ok(F.camera.isOrthographicCamera, 'view buttons keep ortho on');
+  proj.click();
+  ok(F.camera.isPerspectiveCamera && w.localStorage.getItem('floorsim.ortho') === '0', 'toggles back to perspective');
+  d.querySelector('[data-view="fit"]').click();
   ok(d.getElementById('timeTxt').textContent.startsWith('0:00 /'), 'time readout: ' + d.getElementById('timeTxt').textContent);
   console.log('   stats', JSON.stringify(S.stats), 'speed', S.speed);
 

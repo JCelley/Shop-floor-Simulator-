@@ -57,8 +57,13 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setClearColor(0x000000, 0);
 vp.insertBefore(renderer.domElement, vp.firstChild);
 scene = new THREE.Scene();
-camera = new THREE.PerspectiveCamera(35, 1, 0.5, 20000);
-camera.up.set(0, 0, 1);
+// Perspective by default; the Ortho button swaps in a parallel projection sized so the same
+// orb.dist shows the same amount of the part - zoom, pan and fit all keep working unchanged.
+const FOV = 35;
+const perspCam = new THREE.PerspectiveCamera(FOV, 1, 0.5, 20000);
+const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, -20000, 20000);
+perspCam.up.set(0, 0, 1); orthoCam.up.set(0, 0, 1);
+camera = perspCam;
 scene.add(new THREE.AmbientLight(0xffffff, 0.62));
 const dl1 = new THREE.DirectionalLight(0xffffff, 0.78); dl1.position.set(0.5, -0.8, 1.4); scene.add(dl1);
 const dl2 = new THREE.DirectionalLight(0xffffff, 0.3); dl2.position.set(-1, 0.6, 0.4); scene.add(dl2);
@@ -70,18 +75,32 @@ function applyCamera() {
   camera.position.set(orb.tx + orb.dist * ce * Math.cos(orb.az), orb.ty + orb.dist * ce * Math.sin(orb.az), orb.tz + orb.dist * Math.sin(orb.el));
   camera.up.set(0, 0, 1);
   camera.lookAt(orb.tx, orb.ty, orb.tz);
+  if (camera === orthoCam) fitOrtho();
   camera.updateMatrixWorld();
   invalidate();
+}
+// Half-height of what the perspective camera sees at the orbit target - the ortho frustum uses it too.
+const viewHalfH = () => orb.dist * Math.tan(FOV * Math.PI / 360);
+function fitOrtho() {
+  const w = vp.clientWidth || 300, h = vp.clientHeight || 300, hh = viewHalfH();
+  orthoCam.left = -hh * w / h; orthoCam.right = hh * w / h; orthoCam.top = hh; orthoCam.bottom = -hh;
+  orthoCam.updateProjectionMatrix();
 }
 function resize() {
   const w = vp.clientWidth || 300, h = vp.clientHeight || 300;
   renderer.setSize(w, h, false);
-  camera.aspect = w / h; camera.updateProjectionMatrix(); invalidate();
+  perspCam.aspect = w / h; perspCam.updateProjectionMatrix(); fitOrtho(); invalidate();
 }
 if (typeof ResizeObserver !== 'undefined') new ResizeObserver(resize).observe(vp); else window.addEventListener('resize', resize);
+function setOrtho(on) {
+  camera = on ? orthoCam : perspCam;
+  $('projBtn').setAttribute('aria-pressed', String(on));
+  try { localStorage.setItem('floorsim.ortho', on ? '1' : '0'); } catch (e) { /* storage blocked - just not remembered */ }
+  applyCamera();
+}
 
 function panBy(dx, dy) {
-  const s = (2 * orb.dist * Math.tan(camera.fov * Math.PI / 360)) / (vp.clientHeight || 600);
+  const s = (2 * viewHalfH()) / (vp.clientHeight || 600);
   const m = camera.matrixWorld.elements;
   orb.tx += (-dx * m[0] + dy * m[4]) * s; orb.ty += (-dx * m[1] + dy * m[5]) * s; orb.tz += (-dx * m[2] + dy * m[6]) * s;
   applyCamera();
@@ -342,7 +361,7 @@ function toolPos(i, f) {
 }
 function updateTool() {
   const P = S.prog; if (!P || !P.n) return;
-  const [x, y, z, ii] = toolPos(S.cur.i, S.cur.f), no = P.TL[ii];
+  const c = dispCur(), [x, y, z, ii] = toolPos(c.i, c.f), no = P.TL[ii];
   if (S.activeTool !== no) { const a = toolGroups.get(S.activeTool); if (a) a.visible = false; S.activeTool = no; }
   const g = toolGroups.get(no); if (!g) return;
   g.visible = true;
@@ -591,7 +610,7 @@ async function loadText(text, name, opts = {}) {
     if (csv) { const n = NC.applyCsvTools(P.tools, csv); info.push(`Setup sheet: ${n} tool${n === 1 ? '' : 's'} sized from it.`); }
     if (opts.tools) for (const o of opts.tools) { const t = P.tools.find(x => x.no === o.no); if (t) { Object.assign(t, o); t.defaulted = false; NC.completeTool(t); } }
     if (lib) { const n = NC.applyLibrary(lib, P.tools); info.push(`Tool library: matched ${n} of ${P.tools.length} tools, holders included.`); }
-    if (opts.cimcoTools) { const n = NC.applyCimcoTools(opts.cimcoTools, P.tools); info.push(`CIMCO scanning post: matched ${n} of ${P.tools.length} tools, holders included (real Fusion tool data, not NC-comment guessing).`); }
+    if (opts.cimcoTools) { const n = NC.applyCimcoTools(opts.cimcoTools, P.tools); info.push(`Setup file: matched ${n} of ${P.tools.length} tools, holders included.`); }
     const opsList = opts.ops || (csv && csv.ops) || null, extraWarn = [];
     if (opsList) {
       const same = opsList.length === P.ops.length && opsList.every((o, i) => o.tool === P.ops[i].tool);
@@ -610,9 +629,13 @@ async function loadText(text, name, opts = {}) {
 
     S.ready = false; S.playing = false; updatePlay(); S.curOp = -1; S.cur = { i: 0, f: 0 }; S.tau = 0;
     S.text = text; S.csv = csv; S.lib = lib; S.setup = setup; S.opsList = opts.ops || null; S.exported = opts.exported || null; S.docName = opts.document || null;
-    // The real finished-part mesh from a CIMCO scanning post, when one was loaded - parsed and
+    // The .setup file's tool/holder data is kept so a reload of the same program (edited G-code,
+    // units change) re-applies it - dropping it put every holder back to the default shape.
+    S.cimcoTools = opts.cimcoTools || null; S.cimcoWarn = opts.cimcoWarn || [];
+    // The real finished-part mesh from the .setup file, when one was loaded - parsed and
     // kept here for a future true deviation-colouring feature, not rendered by anything yet.
     S.partMesh = opts.partMesh || null;
+    setCodeText(text);
     S.prog = P; S.name = name; S.tools = P.tools; S.toolsDirty = false;
     setText($('fname'), name + (opts.exported ? '   exported ' + opts.exported.slice(0, 16).replace('T', ' ') : ''));
     if (opts.stock) S.stock = Object.assign({}, opts.stock); else if (setup && setup.stock) S.stock = stockFromSetup(setup.stock); else autoStock();
@@ -674,13 +697,15 @@ async function handleFiles(files) {
       cimcoTools = parsed.tools.length ? parsed : null;
       partMesh = result.partMesh;
       cimcoWarn = result.warnings;
-    } catch (err) { console.error(err); toast('Could not read the CIMCO .setup/STL files: ' + err.message); }
+    } catch (err) { console.error(err); toast('Could not read the .setup/STL files: ' + err.message); }
   }
   const cimcoOpts = { cimcoTools, partMesh, cimcoWarn };
+  // Adding just a CSV/tool library to the program already on screen keeps its setup-file data.
+  const keptOpts = cimcoTools ? cimcoOpts : { cimcoTools: S.cimcoTools, partMesh: S.partMesh, cimcoWarn: S.cimcoWarn };
   if (b.job) return loadText(b.job.gcode, b.job.program || 'Job', Object.assign({ setup: b.job, lib: b.job.toolLibrary, ops: b.job.ops, exported: b.job.exported, document: b.job.document }, cimcoOpts));
   if (b.bundle) return loadText(b.bundle.gcode, b.bundle.name || 'Job bundle', Object.assign({ stock: b.bundle.stock, tools: b.bundle.tools, csv: b.csv, lib: b.lib, setup: b.setup }, cimcoOpts));
   if (b.text) return loadText(b.text, b.name, Object.assign({ csv: b.csv, lib: b.lib, setup: b.setup }, cimcoOpts));
-  if ((b.csv || b.lib || b.setup || cimcoTools) && S.text) return loadText(S.text, S.name, Object.assign({ csv: b.csv || S.csv, lib: b.lib || S.lib, setup: b.setup || S.setup, ops: S.opsList, exported: S.exported, document: S.docName }, cimcoOpts));
+  if ((b.csv || b.lib || b.setup || cimcoTools) && S.text) return loadText(S.text, S.name, Object.assign({ csv: b.csv || S.csv, lib: b.lib || S.lib, setup: b.setup || S.setup, ops: S.opsList, exported: S.exported, document: S.docName }, keptOpts));
   if (b.csv || b.lib || b.setup || cimcoTools) toast('Open the program (.NC) first, or select it together with the CSV, .tools and setup files.');
 }
 
@@ -694,10 +719,10 @@ function classifyFolderFile(name) {
   if (/\.nc$/i.test(name)) return { kind: 'NC', program: name.replace(/\.nc$/i, '') };
   if (/\.csv$/i.test(name)) return { kind: 'CSV', program: name.replace(/\.csv$/i, '') };
   if (/\.tools$/i.test(name)) return { kind: 'tools', program: name.replace(/\.tools$/i, '') };
-  if (/\.setup$/i.test(name)) return { kind: 'cimco-setup', program: name.replace(/\.setup$/i, '') };
-  if (/_STOCK\.stl$/i.test(name)) return { kind: 'cimco-stock', program: name.replace(/_STOCK\.stl$/i, '') };
-  if (/_PART\.stl$/i.test(name)) return { kind: 'cimco-part', program: name.replace(/_PART\.stl$/i, '') };
-  if (/_FIXTURE\.stl$/i.test(name)) return { kind: 'cimco-fixture', program: name.replace(/_FIXTURE\.stl$/i, '') };
+  if (/\.setup$/i.test(name)) return { kind: 'setup', program: name.replace(/\.setup$/i, '') };
+  if (/_STOCK\.stl$/i.test(name)) return { kind: 'stock', program: name.replace(/_STOCK\.stl$/i, '') };
+  if (/_PART\.stl$/i.test(name)) return { kind: 'part', program: name.replace(/_PART\.stl$/i, '') };
+  if (/_FIXTURE\.stl$/i.test(name)) return { kind: 'fixture', program: name.replace(/_FIXTURE\.stl$/i, '') };
   if (/\.json$/i.test(name)) return { kind: 'JSON', program: name.replace(/\.json$/i, '') };
   return null;
 }
@@ -736,6 +761,71 @@ function showPicker(list) {
   input.oninput = render;
   back.hidden = false;
   input.focus();
+}
+
+/* ---------- Load by program number from a remembered folder ----------
+   A web page can't open a folder by its path, so the folder is picked once (File System Access
+   API) and its handle is kept in IndexedDB - it stays the folder until "Folder:" is used to pick
+   another. Chrome may ask once per session to allow reading it again (that needs a click, so a
+   link can't silently do it). ?program=O1138 in the page link fills the box and loads it - the
+   hook for the planned ProShop button. Browsers without the API keep the old "Open job folder". */
+const FS_OK = typeof window.showDirectoryPicker === 'function';
+function idb(mode, fn) {
+  return new Promise((res, rej) => {
+    if (!window.indexedDB) { res(undefined); return; }
+    const rq = indexedDB.open('apw-floorsim', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+    rq.onerror = () => rej(rq.error);
+    rq.onsuccess = () => {
+      const db = rq.result, tx = db.transaction('kv', mode), r = fn(tx.objectStore('kv'));
+      tx.oncomplete = () => { db.close(); res(r && r.result); };
+      tx.onerror = () => { db.close(); rej(tx.error); };
+    };
+  });
+}
+const idbGet = k => idb('readonly', st => st.get(k));
+const idbSet = (k, v) => idb('readwrite', st => st.put(v, k));
+function showFolderName() { setText($('folderName'), S.folder ? S.folder.name : 'not set'); }
+async function setFolder() {
+  const h = await window.showDirectoryPicker({ id: 'apw-floorsim-jobs', mode: 'read' });
+  S.folder = h; showFolderName();
+  try { await idbSet('folder', h); } catch (e) { console.error(e); toast('Folder picked, but this browser could not remember it for next time.'); }
+  return h;
+}
+async function folderReadable(h, ask) {
+  if (!h.queryPermission) return true;
+  const o = { mode: 'read' };
+  if ((await h.queryPermission(o)) === 'granted') return true;
+  return ask ? (await h.requestPermission(o)) === 'granted' : false;
+}
+const normProgram = s => { s = String(s || '').trim().toUpperCase(); return /^\d+$/.test(s) ? 'O' + s : s; };
+async function loadProgram(raw, ask) {
+  const prog = normProgram(raw);
+  if (!prog) { toast('Type a program number, for example O1138.'); $('progNo').focus(); return false; }
+  $('progNo').value = prog;
+  if (!S.folder) {
+    if (!ask) return false;
+    try { await setFolder(); } catch (err) { if (err && err.name !== 'AbortError') toast('Could not open that folder: ' + err.message); return false; }
+  }
+  if (!(await folderReadable(S.folder, ask))) { toast(`Click Load to allow reading the "${S.folder.name}" folder.`); return false; }
+  const files = [];
+  try {
+    for await (const h of S.folder.values()) {
+      if (h.kind !== 'file') continue;
+      const c = classifyFolderFile(h.name);
+      if (c && c.program.toUpperCase() === prog) files.push(await h.getFile());
+    }
+  } catch (err) { console.error(err); toast('Could not read the folder: ' + err.message); return false; }
+  if (!files.some(f => /\.nc$/i.test(f.name))) { toast(`No ${prog}.NC in the "${S.folder.name}" folder.`); return false; }
+  await handleFiles(files);
+  return true;
+}
+async function startupFolder() {
+  if (!FS_OK) return;
+  $('progForm').hidden = false; $('folderFallback').hidden = true;
+  try { const h = await idbGet('folder'); if (h) { S.folder = h; showFolderName(); } } catch (e) { console.error(e); }
+  const q = new URLSearchParams(location.search).get('program');
+  if (q) { $('progNo').value = normProgram(q); loadProgram(q, false); }
 }
 
 // Restore one snapshot's full state: every plane's HeightSim, plus every tri-dexel signed grid.
@@ -992,11 +1082,14 @@ function goTo(tau) {
   if (S.tau < tau - 1e-6 && S.cur.i < P.n) S.pendingSeek = tau;
 }
 const opStart = k => { const P = S.prog, m = P.ops[k].move; return m > 0 ? P.cumT[m - 1] : 0; };
-function goToOp(k) { if (!S.ready) return; S.pendingSeek = opStart(clamp(k, 0, S.prog.ops.length - 1)); S.playing = false; updatePlay(); }
+// Any navigation other than stepping by line hands the G-code panel back to following the sim.
+function clearLineSel() { S.selLine = null; S.selMove = -1; S.codeFree = false; }
+function goToOp(k) { if (!S.ready) return; clearLineSel(); S.pendingSeek = opStart(clamp(k, 0, S.prog.ops.length - 1)); S.playing = false; updatePlay(); }
 function togglePlay() {
   if (!S.ready) return;
   if (!S.playing && S.tau >= S.prog.total - 1e-6) S.pendingSeek = 0;
   S.playing = !S.playing; updatePlay();
+  if (S.playing) clearLineSel();
 }
 function updatePlay() {
   $('playIcon').innerHTML = S.playing ? '<path d="M6 4.5h4.2v15H6zM13.8 4.5H18v15h-4.2z"/>' : '<path d="M7 4.5v15L19.5 12z"/>';
@@ -1028,7 +1121,7 @@ let lastHud = 0;
 function updateHud(force) {
   const P = S.prog; if (!P || !P.n) return;
   const now = performance.now(); if (!force && now - lastHud < 90) return; lastHud = now;
-  const [x, y, z, i] = toolPos(S.cur.i, S.cur.f), no = P.TL[i], t = S.tools.find(q => q.no === no);
+  const c = dispCur(), [x, y, z, i] = toolPos(c.i, c.f), no = P.TL[i], t = S.tools.find(q => q.no === no);
   if (no !== S.hudTool && t) {
     S.hudTool = no;
     setText($('tNo'), no ? 'T' + no : 'T-');
@@ -1043,33 +1136,128 @@ function updateHud(force) {
   if (P.OP[i] !== S.curOp) { S.curOp = P.OP[i]; onOpChange(); }
   const op = P.ops[S.curOp];
   setText($('opNow'), op ? op.label : ''); setText($('opSub'), `Operation ${S.curOp + 1} of ${P.ops.length}`);
+  // The N on this op's tool-change (G100) line - where an operator restarts the machine for it.
+  if (op && op.seqN != null) { $('restartBox').hidden = false; setText($('restartN'), op.seqN); } else $('restartBox').hidden = true;
   setText($('pX'), x.toFixed(3)); setText($('pY'), y.toFixed(3)); setText($('pZ'), z.toFixed(3));
   setText($('timeTxt'), mmss(S.tau) + ' / ' + mmss(P.total));
   if (!S.scrubbing) $('scrub').value = P.total > 0 ? Math.round(S.tau / P.total * 10000) : 0;
-  if (P.LN[i] !== S.hudLine) { S.hudLine = P.LN[i]; renderCode(S.hudLine); }
+  const ln = S.selLine != null ? S.selLine : P.LN[i];
+  if (ln !== S.hudLine) renderCode(ln, !S.codeFree);
 }
-function renderCode(ln) {
-  const L = S.prog.lines, a = Math.max(1, ln - 6), b = Math.min(L.length, a + 12); let h = '';
-  for (let k = a; k <= b; k++) h += `<div class="ln${k === ln ? ' cur' : ''}"><i>${k}</i><span>${esc(L[k - 1])}</span></div>`;
-  $('code').innerHTML = h;
+// Where to draw the tool/HUD from. After stepping to a line, the sim sits at the START of the next
+// move (the same point as the end of the last move on that line) - show it as the end of that
+// last move, so a tool change or new op on the next line doesn't appear one step early.
+function dispCur() {
+  const c = S.cur;
+  if (S.selLine != null && S.selMove >= 0 && c.i === S.selMove + 1 && c.f === 0) return { i: S.selMove, f: 1 };
+  return c;
 }
 
-/* ---------- G-code editing: never saved, just re-run through the normal load path ---------- */
-function enterCodeEdit() {
-  if (!S.prog) return;
-  S.playing = false; updatePlay();
-  $('codeEdit').value = S.text || '';
-  $('code').hidden = true; $('codeEditWrap').hidden = false; $('codeEditBtn').hidden = true;
-  $('codeEdit').focus();
+/* ---------- G-code panel ----------
+   One textarea holds the whole program and is always editable - click and type, no Edit button.
+   While the text is unchanged it doubles as the line-by-line stepper: click a line to jump the sim
+   there, mouse wheel / arrow keys / the two buttons step one line, dragging the scrollbar moves to
+   the line in the middle. Once edited, it behaves as a plain text box until "Run edited code"
+   (nothing is saved - reverts on reload) or "Undo edits". The line numbers and the current-line
+   band are drawn beside/under it, so the line height is fixed (must match style.css). */
+const CODE_LH = 20, CODE_PADT = 6;
+const codeTa = $('code');
+let codeStarts = new Int32Array([0]), codeNorm = '', codeAutoTop = -1, codeLastTop = 0, codeWheelAcc = 0;
+function setCodeText(text) {
+  codeNorm = String(text).replace(/\r/g, '');   // same line split as the parser, so line numbers agree
+  codeTa.value = codeNorm;
+  const st = [0]; for (let k = codeNorm.indexOf('\n'); k >= 0; k = codeNorm.indexOf('\n', k + 1)) st.push(k + 1);
+  codeStarts = Int32Array.from(st);
+  S.selLine = null; S.selMove = -1; S.hudLine = -1; S.codeFree = false;
+  setCodeDirty(false);
 }
+function codeLineOf(pos) {
+  let lo = 0, hi = codeStarts.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (codeStarts[m] <= pos) lo = m; else hi = m - 1; }
+  return lo + 1;
+}
+function setCodeDirty(d) {
+  S.codeDirty = d; $('codeEditRow').hidden = !d; $('codeWrap').classList.toggle('dirty', d);
+  paintCode();
+}
+function paintCode() {
+  const top = codeTa.scrollTop, h = codeTa.clientHeight || 250, cur = S.hudLine;
+  const first = Math.max(1, Math.floor((top - CODE_PADT) / CODE_LH) + 1), last = Math.min(codeStarts.length, first + Math.ceil(h / CODE_LH) + 1);
+  let g = `<div style="height:0;margin-top:${CODE_PADT + (first - 1) * CODE_LH - top}px"></div>`;
+  for (let k = first; k <= last; k++) g += `<div${k === cur && !S.codeDirty ? ' class="cur"' : ''}>${k}</div>`;
+  $('codeGutter').innerHTML = g;
+  const hl = $('codeHl'), y = CODE_PADT + (cur - 1) * CODE_LH - top;
+  hl.hidden = S.codeDirty || cur < 1 || y < -CODE_LH || y > h;
+  hl.style.top = y + 'px';
+}
+function renderCode(ln, centre) {
+  S.hudLine = ln;
+  if (centre && !S.codeDirty) {
+    codeTa.scrollTop = Math.max(0, CODE_PADT + (ln - 1) * CODE_LH - ((codeTa.clientHeight || 250) - CODE_LH) / 2);
+    codeAutoTop = codeTa.scrollTop;
+  }
+  paintCode();
+}
+// Index of the last move whose source line is at or before L (-1 if none) - P.LN never decreases.
+function lineMove(L) {
+  const LN = S.prog.LN; let lo = 0, hi = S.prog.n;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (LN[m] <= L) lo = m + 1; else hi = m; }
+  return lo - 1;
+}
+// Put the sim at the end of line L: everything on and before it has run, nothing after it.
+function goToLine(L, centre) {
+  if (!S.ready || !S.prog) return;
+  L = clamp(Math.round(L), 1, codeStarts.length);
+  S.playing = false; updatePlay();
+  const k = lineMove(L);
+  S.selLine = L; S.selMove = k; S.codeFree = !centre;
+  S.pendingSeek = k >= 0 ? S.prog.cumT[k] : 0;
+  renderCode(L, centre);
+}
+function stepLine(d) {
+  if (!S.ready || S.codeDirty) return;
+  const from = S.selLine != null ? S.selLine : Math.max(1, S.hudLine);
+  goToLine(from + d, true);
+  if (document.activeElement === codeTa) { const p = codeStarts[S.selLine - 1]; codeTa.setSelectionRange(p, p); }
+}
+codeTa.addEventListener('scroll', () => {
+  const top = codeTa.scrollTop, auto = Math.abs(top - codeAutoTop) < 1, moved = top !== codeLastTop;
+  codeAutoTop = -1; codeLastTop = top;
+  paintCode();
+  if (auto || !moved || S.codeDirty || !S.ready) return;
+  // Dragged or swiped by hand: the line in the middle of the box becomes the current line.
+  goToLine(Math.floor((top + (codeTa.clientHeight || 250) / 2 - CODE_PADT) / CODE_LH) + 1, false);
+});
+codeTa.addEventListener('wheel', e => {
+  if (S.codeDirty || !S.ready) return;   // while editing, the wheel just scrolls the text
+  e.preventDefault();
+  const d = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+  codeWheelAcc = Math.abs(d) >= 40 ? d : codeWheelAcc + d;   // one mouse notch = exactly one line; trackpads accumulate
+  if (Math.abs(codeWheelAcc) >= 40) { const s = Math.sign(codeWheelAcc); codeWheelAcc = 0; stepLine(s); }
+}, { passive: false });
+codeTa.addEventListener('keydown', e => {
+  if (S.codeDirty || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); stepLine(e.key === 'ArrowDown' ? 1 : -1); }
+});
+codeTa.addEventListener('click', () => {
+  if (S.codeDirty || !S.ready || codeTa.selectionStart !== codeTa.selectionEnd) return;   // a drag-selection is for editing/copying
+  goToLine(codeLineOf(codeTa.selectionStart), false);
+});
+codeTa.addEventListener('input', () => {
+  const d = codeTa.value !== codeNorm;
+  if (d && !S.codeDirty) { S.playing = false; updatePlay(); }
+  setCodeDirty(d);
+});
+const reloadOpts = () => ({ csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName, cimcoTools: S.cimcoTools, partMesh: S.partMesh, cimcoWarn: S.cimcoWarn });
+// Throw away unsaved edits (loading anything else does this too).
 function exitCodeEdit() {
-  $('code').hidden = false; $('codeEditWrap').hidden = true; $('codeEditBtn').hidden = false;
+  if (!S.codeDirty) return;
+  codeTa.value = codeNorm; setCodeDirty(false); renderCode(S.hudLine, true);
 }
 async function runCodeEdit() {
-  const newText = $('codeEdit').value;
+  const newText = codeTa.value;
   const baseName = S.name.replace(/ \(edited\)$/, '');
-  await loadText(newText, baseName + ' (edited)', { csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName });
-  if (S.text === newText) exitCodeEdit();   // stay in edit mode on failure so the typo is still there to fix
+  await loadText(newText, baseName + ' (edited)', reloadOpts());   // a failed run leaves the edit in place to fix
 }
 function onOpChange() {
   applyPaths();
@@ -1080,7 +1268,8 @@ function onOpChange() {
 function buildOps() {
   const P = S.prog;
   $('ops').innerHTML = P.ops.map((o, k) => {
-    const badges = (o.comp ? `<span class="opbadge cc">${o.comp === 1 ? 'G41' : 'G42'}${o.compD ? ' D' + o.compD : ''}</span>` : '') +
+    const badges = (o.seqN != null ? `<span class="opbadge seq" title="Sequence number of this tool change - restart here">N${o.seqN}</span>` : '') +
+      (o.comp ? `<span class="opbadge cc">${o.comp === 1 ? 'G41' : 'G42'}${o.compD ? ' D' + o.compD : ''}</span>` : '') +
       (o.dim ? `<span class="opbadge dim">${esc(o.dim)}</span>` : '');
     return `<li class="${o.dim ? 'op-dim' : ''}"><button type="button" data-k="${k}" aria-current="false"><span class="sw" style="background:${toolHex(o.tool)}"></span><span class="t">T${o.tool}</span><span class="opline"><span class="oplabel">${esc(o.label)}</span>${badges ? `<span class="opbadges">${badges}</span>` : ''}</span></button></li>`;
   }).join('');
@@ -1132,11 +1321,14 @@ $('fileFolder').onchange = e => { const fl = [...e.target.files]; e.target.value
 $('pickerCancel').onclick = hidePicker;
 $('pickerBack').addEventListener('click', e => { if (e.target === $('pickerBack')) hidePicker(); });
 document.addEventListener('keydown', e => { if (e.code === 'Escape' && !$('pickerBack').hidden) hidePicker(); });
-$('codeEditBtn').onclick = enterCodeEdit;
 $('codeCancel').onclick = exitCodeEdit;
 $('codeRun').onclick = runCodeEdit;
+$('lineUp').onclick = () => stepLine(-1);
+$('lineDn').onclick = () => stepLine(1);
 $('fileLib').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; handleFiles(fl); };
-$('unitSel').onchange = () => { exitCodeEdit(); if (S.text) loadText(S.text, S.name, { csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName }); };
+$('unitSel').onchange = () => { exitCodeEdit(); if (S.text) loadText(S.text, S.name, reloadOpts()); };
+$('progForm').addEventListener('submit', e => { e.preventDefault(); loadProgram($('progNo').value, true); });
+$('folderBtn').onclick = () => { setFolder().catch(err => { if (err && err.name !== 'AbortError') toast('Could not open that folder: ' + err.message); }); };
 $('demoSel').onchange = e => {
   exitCodeEdit();
   const v = e.target.value; e.target.value = '';
@@ -1153,8 +1345,9 @@ document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
   if (S.sim && S.prog) { buildLegend(); for (const pl of S.planes.values()) refreshStock(pl.sim, pl.stock, true); }
 });
 document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
+$('projBtn').onclick = () => setOrtho(camera !== orthoCam);
 $('bPlay').onclick = togglePlay;
-$('bRestart').onclick = () => { if (S.ready) { S.pendingSeek = 0; S.playing = false; updatePlay(); } };
+$('bRestart').onclick = () => { if (S.ready) { clearLineSel(); S.pendingSeek = 0; S.playing = false; updatePlay(); } };
 $('bNext').onclick = () => { if (S.ready) goToOp(Math.min(S.curOp + 1, S.prog.ops.length - 1)); };
 $('bPrev').onclick = () => { if (S.ready) goToOp(S.tau - opStart(S.curOp) > 1.5 ? S.curOp : Math.max(0, S.curOp - 1)); };
 $('speedSel').onchange = e => { S.speed = +e.target.value; };
@@ -1169,7 +1362,7 @@ $('fixSel').onchange = e => { S.fixtures = e.target.value === 'on'; fixScene.vis
 $('ghostSel').onchange = e => { S.ghost = e.target.value === 'on'; if (STOCK.ghost) STOCK.ghost.visible = S.ghost; invalidate(); };
 const scrub = $('scrub');
 scrub.addEventListener('pointerdown', () => { S.scrubbing = true; });
-scrub.addEventListener('input', () => { if (!S.ready) return; S.playing = false; updatePlay(); S.pendingSeek = scrub.value / 10000 * S.prog.total; });
+scrub.addEventListener('input', () => { if (!S.ready) return; clearLineSel(); S.playing = false; updatePlay(); S.pendingSeek = scrub.value / 10000 * S.prog.total; });
 const endScrub = () => { S.scrubbing = false; };
 scrub.addEventListener('pointerup', endScrub); scrub.addEventListener('change', endScrub); scrub.addEventListener('blur', endScrub);
 document.addEventListener('keydown', e => {
@@ -1211,8 +1404,16 @@ function frame(now) {
     if (S.playing) invalidate();
   } catch (err) { console.error(err); if (!errShown) { errShown = true; toast('Something went wrong in the viewer: ' + err.message); } }
 }
-resize(); setView('fit');
+resize();
+let wantOrtho = false; try { wantOrtho = localStorage.getItem('floorsim.ortho') === '1'; } catch (e) { /* no storage */ }
+if (wantOrtho) setOrtho(true);
+setView('fit');
 requestAnimationFrame(frame);
-window.__floorsim = { S, orb, goTo, advance, loadText, handleFiles, openFolder, groupFolderFiles, enterCodeEdit, exitCodeEdit, runCodeEdit, fixScene, rebuild, STOCK, TILT_ROOT, TRI_ROOT, toolGroups, renderer, pickAt, camera, scene };   // handy for debugging in the console
+window.__floorsim = {
+  S, orb, goTo, advance, loadText, handleFiles, openFolder, groupFolderFiles, exitCodeEdit, runCodeEdit, goToLine, stepLine,
+  loadProgram, setFolder, setOrtho, fixScene, rebuild, STOCK, TILT_ROOT, TRI_ROOT, toolGroups, renderer, pickAt, scene,
+  get camera() { return camera; },
+};   // handy for debugging in the console
 loadText(NC.demoProgram(), 'Demo program', { stock: { xmin: -50, xmax: 50, ymin: -35, ymax: 35, zbot: -20, ztop: 0 } });
+startupFolder();
 })();

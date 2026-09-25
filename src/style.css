@@ -51,9 +51,16 @@ button, select, input { font: inherit; color: inherit; }
 
 /* ---------- top bar ---------- */
 .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-.title strong { font-size: 22px; font-weight: 700; letter-spacing: .01em; }
-.tag { font-size: 13px; color: var(--muted); border: 1px solid var(--line); padding: 0 7px; border-radius: 3px; }
+.title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.title strong { font-size: 22px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+/* The site's logo is off-white on transparent - fine on the dark theme, darkened for light. */
+.logo { height: 40px; width: auto; display: block; flex: none; filter: brightness(.16); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .logo { filter: none; } }
+:root[data-theme="dark"] .logo { filter: none; }
+.progform { display: flex; gap: 8px; align-items: center; margin: 0; }
+.progform input { min-height: 40px; width: 9.5em; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); font: 600 16px var(--mono); }
+#folderBtn { max-width: 16em; }
+#folderName { font-weight: 500; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .fname { color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30vw; }
 .bar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .btn, .sel {
@@ -120,18 +127,29 @@ button, select, input { font: inherit; color: inherit; }
 .read b { font: 600 20px/1.15 var(--mono); }
 .opnow { margin-top: 12px; font-size: 18px; font-weight: 700; line-height: 1.2; }
 .opsub { color: var(--muted); font-size: 14px; }
+.restart { display: inline-flex; align-items: baseline; gap: 8px; margin-top: 8px; padding: 4px 10px; border: 2px solid var(--accent); border-radius: 6px; background: var(--panel2); }
+.restart span { font-size: 14px; color: var(--muted); font-weight: 600; }
+.restart b { font: 700 20px/1.1 var(--mono); }
 .xyz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; font: 600 17px var(--mono); }
 .xyz span { color: var(--muted); font-weight: 500; margin-right: 4px; }
 .code { padding: 10px 14px 12px; }
-.code-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.code-head h2 { margin: 0 0 8px; }
-.codebox { font: 500 13.5px/1.55 var(--mono); background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; height: 12.4em; overflow: hidden; }
-.ln { display: grid; grid-template-columns: 4.2ch 1fr; gap: 8px; padding: 0 8px; white-space: pre; overflow: hidden; }
-.ln i { font-style: normal; color: var(--muted); text-align: right; }
-.ln.cur { background: var(--code-cur); font-weight: 700; }
-.code-edit textarea { width: 100%; height: 16em; resize: vertical; font: 500 13.5px/1.55 var(--mono); background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 8px; color: inherit; box-sizing: border-box; }
-.code-edit-row { display: flex; gap: 8px; margin-top: 8px; }
-.code-edit-note { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.code-head h2 { margin: 0; }
+.code-step { display: flex; gap: 6px; }
+.btn.icon.sm { width: 40px; min-height: 36px; }
+/* One real textarea holds the whole program (click to edit, no Edit button). The current-line
+   band and the line numbers are drawn underneath / beside it and kept in step by app.js, which
+   is why the line height is fixed in px here and mirrored as CODE_LH there. */
+.codewrap { position: relative; height: 262px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.codewrap.dirty { border-color: var(--accent); }
+#code { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border: 0; resize: none; outline: none; background: transparent; color: var(--ink); font: 500 13.5px/20px var(--mono); padding: 6px 8px 6px calc(5ch + 16px); white-space: pre; overflow: auto; z-index: 1; tab-size: 4; }
+#code:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.code-hl { position: absolute; left: 0; right: 0; height: 20px; background: var(--code-cur); z-index: 0; pointer-events: none; }
+.code-gutter { position: absolute; left: 0; top: 0; bottom: 0; width: calc(5ch + 8px); font: 500 13.5px/20px var(--mono); color: var(--muted); text-align: right; padding-right: 6px; pointer-events: none; z-index: 2; overflow: hidden; background: var(--panel2); border-right: 1px solid var(--line); }
+.code-gutter div { height: 20px; }
+.code-gutter div.cur { color: var(--ink); font-weight: 700; }
+.code-edit-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
+.code-edit-note { font-size: 12px; color: var(--muted); }
 .opsec { padding: 10px 0 6px; }
 .opsec h2 { padding: 0 14px; }
 #ops { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
@@ -143,6 +161,7 @@ button, select, input { font: inherit; color: inherit; }
 #ops .oplabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ops .opbadges { display: flex; gap: 6px; flex-wrap: wrap; }
 #ops .opbadge { font: 700 11px/1.5 var(--mono); padding: 0 6px; border-radius: 3px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); }
+#ops .opbadge.seq { color: var(--ink); border-color: var(--accent); }
 #ops .opbadge.cc { color: #fff; background: var(--blue); border-color: transparent; }
 #ops .opbadge.dim { color: #fff; background: var(--green); border-color: transparent; }
 #ops li.op-dim button { background: color-mix(in srgb, var(--green) 16%, transparent); }

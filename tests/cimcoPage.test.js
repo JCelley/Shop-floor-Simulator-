@@ -74,11 +74,30 @@ const U = path.join(ROOT, 'fixtures') + path.sep, C = path.join(ROOT, 'fixtures'
   const t45 = S.tools.find(t => t.no === 45);
   ok(near(t45.D, 4.1656, 0.001), `T45 (the tap) got its real ~4.17mm diameter from the CIMCO tool database, not a bogus inches-misread value: ${t45.D}`);
   ok(!!t45.fromCimco, 'T45 is marked as sourced from the CIMCO tool database');
-  ok(/CIMCO scanning post/.test(d.getElementById('warns').textContent) === false || true, 'info line presence is cosmetic, not asserted strictly');
+  // Everything a user can see or hover: visible text plus title/placeholder/aria-label/alt (the
+  // embedded <script> source is excluded - code comments aren't on the page).
+  const shown = (() => { const b = d.body.cloneNode(true); b.querySelectorAll('script,style').forEach(n => n.remove());
+    return b.textContent + ' ' + [...b.querySelectorAll('*')].map(n => ['title', 'placeholder', 'aria-label', 'alt'].map(a => n.getAttribute(a) || '').join(' ')).join(' ') + ' ' + d.title; })();
+  ok(!/cimco/i.test(shown), 'the word CIMCO appears nowhere on the page (John: APW branding only)' + (/cimco/i.test(shown) ? ': ...' + shown.slice(Math.max(0, shown.search(/cimco/i) - 60), shown.search(/cimco/i) + 40) : ''));
 
   // ---- PART.stl parsed and stored, not rendered (explicit scope decision)
   ok(!!S.partMesh, 'S.partMesh is populated from the real PART.stl');
   ok(S.partMesh.pos.length === 5180 * 9, `S.partMesh has the real PART.stl's triangle data, got ${S.partMesh.pos.length / 9} triangles`);
+
+  // ---- editing the G-code and re-running must keep the .setup file's real holders (John found
+  // they all reverted to the default shape), and so must a units change - both reload the program
+  const holderSig = () => S.tools.filter(t => t.fromCimco).map(t => t.no + ':' + (t.holderSegs || []).length + ':' + (t.holderName || '')).join('|');
+  const before = holderSig();
+  ok(before.length > 0 && S.tools.some(t => t.holderSegs && t.holderSegs.length), 'real holders are loaded to begin with: ' + before.slice(0, 80));
+  const ta = d.getElementById('code');
+  ta.value = ta.value.replace(/\n/, '\n(EDITED)\n'); ta.dispatchEvent(new w.Event('input'));
+  await F.runCodeEdit(); await ready();
+  ok(/\(edited\)$/.test(S.name), 'the edited program loaded: ' + S.name);
+  ok(holderSig() === before, 'holders from the .setup file survive editing and re-running the G-code');
+  ok(!!S.partMesh && !!S.setup && !!S.setup.fixtures.length, 'the part mesh and fixture survive the edit too');
+  const unitSel = d.getElementById('unitSel'); unitSel.value = 'inch'; unitSel.dispatchEvent(new w.Event('change')); await ready();
+  ok(holderSig() === before, 'holders from the .setup file survive a units change');
+  unitSel.value = 'auto'; unitSel.dispatchEvent(new w.Event('change')); await ready();
 
   // ---- full playback still reaches completion
   d.getElementById('speedSel').value = '1000'; d.getElementById('speedSel').dispatchEvent(new w.Event('change')); d.getElementById('bPlay').click();
@@ -96,7 +115,7 @@ const U = path.join(ROOT, 'fixtures') + path.sep, C = path.join(ROOT, 'fixtures'
   ];
   const groups = F.groupFolderFiles(folder);
   ok(groups.length === 1 && groups[0].program === 'O1224', `all 5 CIMCO-related files group under one program, got ${groups.length} group(s)`);
-  ok([...groups[0].kinds].sort().join(',') === 'NC,cimco-fixture,cimco-part,cimco-setup,cimco-stock', 'all 4 new kinds recognized: ' + [...groups[0].kinds].sort().join(','));
+  ok([...groups[0].kinds].sort().join(',') === 'NC,fixture,part,setup,stock', 'all 4 new kinds recognized: ' + [...groups[0].kinds].sort().join(','));
 
   console.log(fails ? `\n${fails} FAILED` : '\nall passed');
   process.exit(fails ? 1 : 0);

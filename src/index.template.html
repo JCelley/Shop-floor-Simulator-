@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>NC Floor Sim (prototype)</title>
+<title>APW Floor Sim</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
@@ -14,9 +14,14 @@
 <body>
 <div class="app">
   <header class="bar">
-    <div class="title"><strong>Floor Sim</strong><span class="tag">prototype</span><span class="fname" id="fname"></span></div>
+    <div class="title"><img class="logo" src="data:image/webp;base64,/*LOGO*/" alt="APW"><strong>Floor Sim</strong><span class="fname" id="fname"></span></div>
     <div class="bar-actions">
-      <label class="btn primary" for="fileFolder" title="Pick the shared folder the shop's NC/CSV/job files sync to">Open job folder</label>
+      <form class="progform" id="progForm" hidden autocomplete="off">
+        <input id="progNo" type="text" placeholder="Program #" aria-label="Program number" spellcheck="false">
+        <button class="btn primary" type="submit" id="progLoad">Load</button>
+        <button class="btn" type="button" id="folderBtn" title="Change the folder programs are loaded from - remembered until you change it">Folder: <span id="folderName">not set</span></button>
+      </form>
+      <label class="btn primary" for="fileFolder" id="folderFallback" title="Pick the shared folder the shop's NC/CSV/job files sync to">Open job folder</label>
       <input id="fileFolder" type="file" webkitdirectory directory multiple hidden>
       <label class="btn" for="fileProg" title="Pick the job file (.floorsim.json) made by the Fusion add-in, or select files by hand">Open job file</label>
       <input id="fileProg" type="file" multiple hidden>
@@ -45,6 +50,7 @@
           <button type="button" data-view="top">Top</button>
           <button type="button" data-view="front">Front</button>
           <button type="button" data-view="fit">Fit</button>
+          <button type="button" id="projBtn" aria-pressed="false" title="Orthographic view: no perspective, parallel lines stay parallel">Ortho</button>
         </div>
       </div>
       <div class="legend" id="legend"></div>
@@ -76,19 +82,27 @@
         </div>
         <div class="opnow" id="opNow"></div>
         <div class="opsub" id="opSub"></div>
+        <div class="restart" id="restartBox" hidden><span>Restart seq #</span><b id="restartN"></b></div>
         <div class="xyz"><div><span>X</span><b id="pX">0.000</b></div><div><span>Y</span><b id="pY">0.000</b></div><div><span>Z</span><b id="pZ">0.000</b></div></div>
       </section>
 
       <section class="code">
-        <div class="code-head"><h2>G-code</h2><button class="btn" id="codeEditBtn" type="button" title="Edit and re-run the program - not saved, gone on reload">Edit</button></div>
-        <div class="codebox" id="code"></div>
-        <div class="code-edit" id="codeEditWrap" hidden>
-          <textarea id="codeEdit" spellcheck="false" aria-label="Edit G-code"></textarea>
-          <div class="code-edit-row">
-            <button class="btn primary" id="codeRun" type="button">Run edited code</button>
-            <button class="btn" id="codeCancel" type="button">Cancel</button>
+        <div class="code-head">
+          <h2>G-code</h2>
+          <div class="code-step">
+            <button class="btn icon sm" id="lineUp" type="button" aria-label="Step back one line" title="Step back one line"><svg viewBox="0 0 24 24"><path d="M12 6l8 10H4z"/></svg></button>
+            <button class="btn icon sm" id="lineDn" type="button" aria-label="Step forward one line" title="Step forward one line"><svg viewBox="0 0 24 24"><path d="M12 18L4 8h16z"/></svg></button>
           </div>
-          <p class="code-edit-note">Not saved - back to the original next time you open this program.</p>
+        </div>
+        <div class="codewrap" id="codeWrap">
+          <div class="code-hl" id="codeHl" hidden></div>
+          <textarea id="code" spellcheck="false" wrap="off" aria-label="G-code: click a line to jump to it, scroll or use the arrow keys to step line by line, type to edit"></textarea>
+          <div class="code-gutter" id="codeGutter" aria-hidden="true"></div>
+        </div>
+        <div class="code-edit-row" id="codeEditRow" hidden>
+          <button class="btn primary" id="codeRun" type="button">Run edited code</button>
+          <button class="btn" id="codeCancel" type="button">Undo edits</button>
+          <span class="code-edit-note">Not saved - back to the original next time you open this program.</span>
         </div>
       </section>
 

@@ -75,6 +75,28 @@ const fixtureBuf = fs.readFileSync(path.join(DIR, 'O1224_FIXTURE.stl'));
   ok(!!result.partMesh && result.partMesh.pos.length === 5180 * 9, 'partMesh is populated and unit-converted, not wired into any rendering path');
 }
 
+/* ---------- WCS offset: meshes come back into program coordinates ----------
+   O1224's .setup has every offset at zero, which hid this. O1138 (real job on a different riser)
+   has WCS X-39.7827 Y6.7573 Z120.193 (mm) and every mesh at X-1.5662 Y0.266 Z4.732 (inch) - the
+   same point, so the placed meshes must land exactly where they'd be with no offset at all.
+   Before the fix they landed 120mm high and every tool looked buried in the fixture. */
+{
+  const shifted = setupText
+    .replace(/^WCS ID1 X0 Y0 Z0/m, 'WCS ID3 X-39.7827 Y6.7573 Z120.193')
+    .replace(/" X0 Y0 Z0 A0 B0 C0 UI/g, '" X-1.5662 Y0.266 Z4.732 A0 B0 C0 UI');
+  ok(/WCS ID3 X-39\.7827/.test(shifted) && (shifted.match(/X-1\.5662/g) || []).length === 3, 'test setup text carries O1138\'s real WCS and mesh offsets');
+  const meshes = () => ({ stock: NC.parseStlBinary(stockBuf), fixture: NC.parseStlBinary(fixtureBuf) });
+  const base = NC.cimcoToFloorsimSetup(NC.parseCimcoSetup(setupText), meshes(), 'O1224').setup;
+  const moved = NC.cimcoToFloorsimSetup(NC.parseCimcoSetup(shifted), meshes(), 'O1224');
+  const d = k => Math.abs(moved.setup.stock[k] - base.stock[k]);
+  const worst = Math.max(...['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'].map(d));
+  ok(worst < 0.01, `stock lands back in program coordinates once the WCS comes off (worst axis off by ${worst.toFixed(4)} mm)`);
+  let fw = 0; for (let i = 0; i < 3000; i++) fw = Math.max(fw, Math.abs(moved.setup.fixtures[0].positions[i] - base.fixtures[0].positions[i]));
+  ok(fw < 0.01, `fixture moves with it (worst ${fw.toFixed(4)} mm)`);
+  const rot = NC.cimcoToFloorsimSetup(NC.parseCimcoSetup(shifted.replace('Z120.193 A0', 'Z120.193 A90')), meshes(), 'O1224');
+  ok(rot.warnings.some(w => /WCS/.test(w) && /rotation/.test(w)), 'a rotated WCS is flagged rather than guessed at');
+}
+
 /* ---------- applyCimcoTools: real, sane values, not a repeat of the tap-diameter bug ---------- */
 {
   const real = NC.parseProgram(fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'O1224.NC'), 'utf8'));

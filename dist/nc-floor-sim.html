@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>NC Floor Sim (prototype)</title>
+<title>APW Floor Sim</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
@@ -61,9 +61,16 @@ button, select, input { font: inherit; color: inherit; }
 
 /* ---------- top bar ---------- */
 .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-.title strong { font-size: 22px; font-weight: 700; letter-spacing: .01em; }
-.tag { font-size: 13px; color: var(--muted); border: 1px solid var(--line); padding: 0 7px; border-radius: 3px; }
+.title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.title strong { font-size: 22px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+/* The site's logo is off-white on transparent - fine on the dark theme, darkened for light. */
+.logo { height: 40px; width: auto; display: block; flex: none; filter: brightness(.16); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .logo { filter: none; } }
+:root[data-theme="dark"] .logo { filter: none; }
+.progform { display: flex; gap: 8px; align-items: center; margin: 0; }
+.progform input { min-height: 40px; width: 9.5em; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); font: 600 16px var(--mono); }
+#folderBtn { max-width: 16em; }
+#folderName { font-weight: 500; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .fname { color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30vw; }
 .bar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .btn, .sel {
@@ -130,18 +137,29 @@ button, select, input { font: inherit; color: inherit; }
 .read b { font: 600 20px/1.15 var(--mono); }
 .opnow { margin-top: 12px; font-size: 18px; font-weight: 700; line-height: 1.2; }
 .opsub { color: var(--muted); font-size: 14px; }
+.restart { display: inline-flex; align-items: baseline; gap: 8px; margin-top: 8px; padding: 4px 10px; border: 2px solid var(--accent); border-radius: 6px; background: var(--panel2); }
+.restart span { font-size: 14px; color: var(--muted); font-weight: 600; }
+.restart b { font: 700 20px/1.1 var(--mono); }
 .xyz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; font: 600 17px var(--mono); }
 .xyz span { color: var(--muted); font-weight: 500; margin-right: 4px; }
 .code { padding: 10px 14px 12px; }
-.code-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.code-head h2 { margin: 0 0 8px; }
-.codebox { font: 500 13.5px/1.55 var(--mono); background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; height: 12.4em; overflow: hidden; }
-.ln { display: grid; grid-template-columns: 4.2ch 1fr; gap: 8px; padding: 0 8px; white-space: pre; overflow: hidden; }
-.ln i { font-style: normal; color: var(--muted); text-align: right; }
-.ln.cur { background: var(--code-cur); font-weight: 700; }
-.code-edit textarea { width: 100%; height: 16em; resize: vertical; font: 500 13.5px/1.55 var(--mono); background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 8px; color: inherit; box-sizing: border-box; }
-.code-edit-row { display: flex; gap: 8px; margin-top: 8px; }
-.code-edit-note { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.code-head h2 { margin: 0; }
+.code-step { display: flex; gap: 6px; }
+.btn.icon.sm { width: 40px; min-height: 36px; }
+/* One real textarea holds the whole program (click to edit, no Edit button). The current-line
+   band and the line numbers are drawn underneath / beside it and kept in step by app.js, which
+   is why the line height is fixed in px here and mirrored as CODE_LH there. */
+.codewrap { position: relative; height: 262px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.codewrap.dirty { border-color: var(--accent); }
+#code { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border: 0; resize: none; outline: none; background: transparent; color: var(--ink); font: 500 13.5px/20px var(--mono); padding: 6px 8px 6px calc(5ch + 16px); white-space: pre; overflow: auto; z-index: 1; tab-size: 4; }
+#code:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.code-hl { position: absolute; left: 0; right: 0; height: 20px; background: var(--code-cur); z-index: 0; pointer-events: none; }
+.code-gutter { position: absolute; left: 0; top: 0; bottom: 0; width: calc(5ch + 8px); font: 500 13.5px/20px var(--mono); color: var(--muted); text-align: right; padding-right: 6px; pointer-events: none; z-index: 2; overflow: hidden; background: var(--panel2); border-right: 1px solid var(--line); }
+.code-gutter div { height: 20px; }
+.code-gutter div.cur { color: var(--ink); font-weight: 700; }
+.code-edit-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
+.code-edit-note { font-size: 12px; color: var(--muted); }
 .opsec { padding: 10px 0 6px; }
 .opsec h2 { padding: 0 14px; }
 #ops { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
@@ -153,6 +171,7 @@ button, select, input { font: inherit; color: inherit; }
 #ops .oplabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ops .opbadges { display: flex; gap: 6px; flex-wrap: wrap; }
 #ops .opbadge { font: 700 11px/1.5 var(--mono); padding: 0 6px; border-radius: 3px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); }
+#ops .opbadge.seq { color: var(--ink); border-color: var(--accent); }
 #ops .opbadge.cc { color: #fff; background: var(--blue); border-color: transparent; }
 #ops .opbadge.dim { color: #fff; background: var(--green); border-color: transparent; }
 #ops li.op-dim button { background: color-mix(in srgb, var(--green) 16%, transparent); }
@@ -203,9 +222,14 @@ label.f select { font-family: var(--font); }
 <body>
 <div class="app">
   <header class="bar">
-    <div class="title"><strong>Floor Sim</strong><span class="tag">prototype</span><span class="fname" id="fname"></span></div>
+    <div class="title"><img class="logo" src="data:image/webp;base64,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" alt="APW"><strong>Floor Sim</strong><span class="fname" id="fname"></span></div>
     <div class="bar-actions">
-      <label class="btn primary" for="fileFolder" title="Pick the shared folder the shop's NC/CSV/job files sync to">Open job folder</label>
+      <form class="progform" id="progForm" hidden autocomplete="off">
+        <input id="progNo" type="text" placeholder="Program #" aria-label="Program number" spellcheck="false">
+        <button class="btn primary" type="submit" id="progLoad">Load</button>
+        <button class="btn" type="button" id="folderBtn" title="Change the folder programs are loaded from - remembered until you change it">Folder: <span id="folderName">not set</span></button>
+      </form>
+      <label class="btn primary" for="fileFolder" id="folderFallback" title="Pick the shared folder the shop's NC/CSV/job files sync to">Open job folder</label>
       <input id="fileFolder" type="file" webkitdirectory directory multiple hidden>
       <label class="btn" for="fileProg" title="Pick the job file (.floorsim.json) made by the Fusion add-in, or select files by hand">Open job file</label>
       <input id="fileProg" type="file" multiple hidden>
@@ -234,6 +258,7 @@ label.f select { font-family: var(--font); }
           <button type="button" data-view="top">Top</button>
           <button type="button" data-view="front">Front</button>
           <button type="button" data-view="fit">Fit</button>
+          <button type="button" id="projBtn" aria-pressed="false" title="Orthographic view: no perspective, parallel lines stay parallel">Ortho</button>
         </div>
       </div>
       <div class="legend" id="legend"></div>
@@ -265,19 +290,27 @@ label.f select { font-family: var(--font); }
         </div>
         <div class="opnow" id="opNow"></div>
         <div class="opsub" id="opSub"></div>
+        <div class="restart" id="restartBox" hidden><span>Restart seq #</span><b id="restartN"></b></div>
         <div class="xyz"><div><span>X</span><b id="pX">0.000</b></div><div><span>Y</span><b id="pY">0.000</b></div><div><span>Z</span><b id="pZ">0.000</b></div></div>
       </section>
 
       <section class="code">
-        <div class="code-head"><h2>G-code</h2><button class="btn" id="codeEditBtn" type="button" title="Edit and re-run the program - not saved, gone on reload">Edit</button></div>
-        <div class="codebox" id="code"></div>
-        <div class="code-edit" id="codeEditWrap" hidden>
-          <textarea id="codeEdit" spellcheck="false" aria-label="Edit G-code"></textarea>
-          <div class="code-edit-row">
-            <button class="btn primary" id="codeRun" type="button">Run edited code</button>
-            <button class="btn" id="codeCancel" type="button">Cancel</button>
+        <div class="code-head">
+          <h2>G-code</h2>
+          <div class="code-step">
+            <button class="btn icon sm" id="lineUp" type="button" aria-label="Step back one line" title="Step back one line"><svg viewBox="0 0 24 24"><path d="M12 6l8 10H4z"/></svg></button>
+            <button class="btn icon sm" id="lineDn" type="button" aria-label="Step forward one line" title="Step forward one line"><svg viewBox="0 0 24 24"><path d="M12 18L4 8h16z"/></svg></button>
           </div>
-          <p class="code-edit-note">Not saved - back to the original next time you open this program.</p>
+        </div>
+        <div class="codewrap" id="codeWrap">
+          <div class="code-hl" id="codeHl" hidden></div>
+          <textarea id="code" spellcheck="false" wrap="off" aria-label="G-code: click a line to jump to it, scroll or use the arrow keys to step line by line, type to edit"></textarea>
+          <div class="code-gutter" id="codeGutter" aria-hidden="true"></div>
+        </div>
+        <div class="code-edit-row" id="codeEditRow" hidden>
+          <button class="btn primary" id="codeRun" type="button">Run edited code</button>
+          <button class="btn" id="codeCancel" type="button">Undo edits</button>
+          <span class="code-edit-note">Not saved - back to the original next time you open this program.</span>
         </div>
       </section>
 
@@ -539,7 +572,10 @@ const NC = (() => {
     for (let i = 0; i < text.length; i++) {
       const c = text[i];
       if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
-      else if (c === '"') q = true;
+      // A quote only opens a quoted field at the very start of that field. Real tool names carry
+      // bare inch marks mid-field (O1138.csv: `2.5" Dodeka Kenn Face Mill`), and treating those as
+      // a quote swallowed the following row whole - 64 ops read instead of 66.
+      else if (c === '"' && f === '') q = true;
       else if (c === ',') { row.push(f); f = ''; }
       else if (c === '\n') { row.push(f); rows.push(row); row = []; f = ''; }
       else if (c !== '\r') f += c;
@@ -569,7 +605,8 @@ const NC = (() => {
       // Column 8 ("Diameter control dim") holds "D<n> = DIM ..." when the operation-comment
       // note started with DIM (see the post's getDimNote()) - pull out just the DIM... part.
       const dimM = /DIM.*/i.exec(r[8] || '');
-      out.ops.push({ label: String(desc).replace(/^\s*OP\d+\s*\|\s*/i, '').trim(), tool: no, dim: dimM ? dimM[0].trim() : '' });
+      // Strip the setup prefix ("OP50  |", "OP61M B SIDE R650 |") - everything up to the first "|".
+      out.ops.push({ label: String(desc).replace(/^\s*OP\d[^|]*\|\s*/i, '').trim(), tool: no, dim: dimM ? dimM[0].trim() : '', seq: (r[0] || '').trim() });
       if (!out.tools.find(t => t.no === no)) out.tools.push({ no, ooh: parseFloat(r[4]) * k, holder: (r[5] || '').trim(), cutD: parseFloat(r[9]) * k, tipRaw: (r[11] || '').trim(), name: (r[12] || '').trim() });
     }
     return out;
@@ -790,9 +827,19 @@ const NC = (() => {
   // wired into rendering (see docs/plan for why).
   function cimcoToFloorsimSetup(parsed, meshes, programName) {
     const warnings = [];
+    // Each mesh's own offset places it in the post's world frame, and the WCS line is where the
+    // program's zero sits in that SAME frame - the toolpath is relative to the WCS, so the WCS
+    // origin has to come back off every mesh. Units: the WCS line is mm, the mesh offsets carry
+    // their own UI/UM flag - inferred from the one real file with a nonzero WCS (O1138: WCS
+    // Z120.193 = offset Z4.732in x 25.4 exactly), not documented. Missing this drew a job on a
+    // riser 120mm too high, with every tool buried in the fixture. A rotated WCS (nonzero A/B/C)
+    // is unverified and warned about rather than guessed at.
+    const w = parsed.wcs || { x: 0, y: 0, z: 0, a: 0, b: 0, c: 0 };
+    if (Math.abs(w.a || 0) > 1e-6 || Math.abs(w.b || 0) > 1e-6 || Math.abs(w.c || 0) > 1e-6) warnings.push('The .setup file\'s WCS has a nonzero A/B/C rotation - only its position is applied here, check placement carefully.');
     const place = (mesh, ref, label) => {
       const t = applyCimcoRef(mesh, ref);
-      if (t.nonzeroRot) warnings.push(`${label} has a nonzero A/B/C rotation in the .setup file - this rotation convention is unverified against real Fusion/CIMCO behavior, check placement carefully.`);
+      if (t.nonzeroRot) warnings.push(`${label} has a nonzero A/B/C rotation in the .setup file - this rotation convention is unverified, check placement carefully.`);
+      for (let i = 0; i < t.pos.length; i += 3) { t.pos[i] -= w.x; t.pos[i + 1] -= w.y; t.pos[i + 2] -= w.z; }
       return t;
     };
     let stock = null, fixtures = [], partMesh = null;
@@ -871,6 +918,10 @@ const NC = (() => {
     let cycleR = 0, cycleZ = 0, cycleInit = 0;
     let pendingLabel = null, forceNewOp = true, init = null;
     let comp = 0, compD = 0; // 0 off, 1 = G41 (left), 2 = G42 (right); compD = the D register named on that same block
+    // The N word on the current tool-change block (G100/M6) - the sequence number an operator types
+    // to restart the machine at that tool. Every op under one tool change shares it. Other N words
+    // (the post's N96001/N99999 length-check macros) are deliberately not tracked.
+    let curSeqN = null, pendingSeqN = null;
 
     const getTool = no => {
       let t = tools.get(no);
@@ -882,7 +933,7 @@ const NC = (() => {
       if (!init) init = { x: nx, y: ny, z: nz };
       if (forceNewOp || pendingLabel !== null || !ops.length) {
         const t = getTool(tool);
-        ops.push({ label: pendingLabel || t.name || ('T' + tool), tool, move: X.length, line: ln, comp: 0, compD: 0, dim: '' });
+        ops.push({ label: pendingLabel || t.name || ('T' + tool), tool, move: X.length, line: ln, comp: 0, compD: 0, dim: '', seqN: curSeqN });
         pendingLabel = null; forceNewOp = false;
       }
       X.push(nx); Y.push(ny); Z.push(nz); K.push(kind); F.push(feed);
@@ -954,9 +1005,11 @@ const NC = (() => {
 
     const block = (words, ln) => {
       const g = [], mc = [], a = {};
+      let nWord = null;
       for (const [c, v] of words) {
         if (c === 'G') g.push(v);
         else if (c === 'M') mc.push(Math.round(v));
+        else if (c === 'N') nWord = v;
         else if ('XYZIJKRQPFSTHDL'.includes(c)) a[c] = v;
         else if ('ABC'.includes(c)) { if (Math.abs(v) > 1e-9) sawRotary = true; }
       }
@@ -996,7 +1049,7 @@ const NC = (() => {
       if ((g.includes(41) || g.includes(42)) && 'D' in a) compD = a.D;
       if ('F' in a) feed = a.F * k();
       if ('S' in a) spindle = a.S;
-      if ('T' in a) pendingTool = Math.round(a.T);
+      if ('T' in a) { pendingTool = Math.round(a.T); pendingSeqN = nWord; }   // "N10 T1" then "M6" on its own line
       for (const m of mc) {
         if (m === 3 || m === 4) spinOn = true;
         else if (m === 5) spinOn = false;
@@ -1006,7 +1059,7 @@ const NC = (() => {
         else if (m === 88 || m === 494) coolant |= 4;
         else if (m === 89 || m === 495) coolant &= ~4;
       }
-      if (mc.includes(6) || toolChange) { tool = pendingTool; getTool(tool); forceNewOp = true; }
+      if (mc.includes(6) || toolChange) { tool = pendingTool; getTool(tool); forceNewOp = true; const sn = nWord !== null ? nWord : pendingSeqN; curSeqN = sn !== null ? Math.round(sn) : null; }
       if (skip) return;
 
       const hasXY = ('X' in a) || ('Y' in a), hasXYZ = hasXY || ('Z' in a);
@@ -1840,8 +1893,13 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setClearColor(0x000000, 0);
 vp.insertBefore(renderer.domElement, vp.firstChild);
 scene = new THREE.Scene();
-camera = new THREE.PerspectiveCamera(35, 1, 0.5, 20000);
-camera.up.set(0, 0, 1);
+// Perspective by default; the Ortho button swaps in a parallel projection sized so the same
+// orb.dist shows the same amount of the part - zoom, pan and fit all keep working unchanged.
+const FOV = 35;
+const perspCam = new THREE.PerspectiveCamera(FOV, 1, 0.5, 20000);
+const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, -20000, 20000);
+perspCam.up.set(0, 0, 1); orthoCam.up.set(0, 0, 1);
+camera = perspCam;
 scene.add(new THREE.AmbientLight(0xffffff, 0.62));
 const dl1 = new THREE.DirectionalLight(0xffffff, 0.78); dl1.position.set(0.5, -0.8, 1.4); scene.add(dl1);
 const dl2 = new THREE.DirectionalLight(0xffffff, 0.3); dl2.position.set(-1, 0.6, 0.4); scene.add(dl2);
@@ -1853,18 +1911,32 @@ function applyCamera() {
   camera.position.set(orb.tx + orb.dist * ce * Math.cos(orb.az), orb.ty + orb.dist * ce * Math.sin(orb.az), orb.tz + orb.dist * Math.sin(orb.el));
   camera.up.set(0, 0, 1);
   camera.lookAt(orb.tx, orb.ty, orb.tz);
+  if (camera === orthoCam) fitOrtho();
   camera.updateMatrixWorld();
   invalidate();
+}
+// Half-height of what the perspective camera sees at the orbit target - the ortho frustum uses it too.
+const viewHalfH = () => orb.dist * Math.tan(FOV * Math.PI / 360);
+function fitOrtho() {
+  const w = vp.clientWidth || 300, h = vp.clientHeight || 300, hh = viewHalfH();
+  orthoCam.left = -hh * w / h; orthoCam.right = hh * w / h; orthoCam.top = hh; orthoCam.bottom = -hh;
+  orthoCam.updateProjectionMatrix();
 }
 function resize() {
   const w = vp.clientWidth || 300, h = vp.clientHeight || 300;
   renderer.setSize(w, h, false);
-  camera.aspect = w / h; camera.updateProjectionMatrix(); invalidate();
+  perspCam.aspect = w / h; perspCam.updateProjectionMatrix(); fitOrtho(); invalidate();
 }
 if (typeof ResizeObserver !== 'undefined') new ResizeObserver(resize).observe(vp); else window.addEventListener('resize', resize);
+function setOrtho(on) {
+  camera = on ? orthoCam : perspCam;
+  $('projBtn').setAttribute('aria-pressed', String(on));
+  try { localStorage.setItem('floorsim.ortho', on ? '1' : '0'); } catch (e) { /* storage blocked - just not remembered */ }
+  applyCamera();
+}
 
 function panBy(dx, dy) {
-  const s = (2 * orb.dist * Math.tan(camera.fov * Math.PI / 360)) / (vp.clientHeight || 600);
+  const s = (2 * viewHalfH()) / (vp.clientHeight || 600);
   const m = camera.matrixWorld.elements;
   orb.tx += (-dx * m[0] + dy * m[4]) * s; orb.ty += (-dx * m[1] + dy * m[5]) * s; orb.tz += (-dx * m[2] + dy * m[6]) * s;
   applyCamera();
@@ -2125,7 +2197,7 @@ function toolPos(i, f) {
 }
 function updateTool() {
   const P = S.prog; if (!P || !P.n) return;
-  const [x, y, z, ii] = toolPos(S.cur.i, S.cur.f), no = P.TL[ii];
+  const c = dispCur(), [x, y, z, ii] = toolPos(c.i, c.f), no = P.TL[ii];
   if (S.activeTool !== no) { const a = toolGroups.get(S.activeTool); if (a) a.visible = false; S.activeTool = no; }
   const g = toolGroups.get(no); if (!g) return;
   g.visible = true;
@@ -2374,7 +2446,7 @@ async function loadText(text, name, opts = {}) {
     if (csv) { const n = NC.applyCsvTools(P.tools, csv); info.push(`Setup sheet: ${n} tool${n === 1 ? '' : 's'} sized from it.`); }
     if (opts.tools) for (const o of opts.tools) { const t = P.tools.find(x => x.no === o.no); if (t) { Object.assign(t, o); t.defaulted = false; NC.completeTool(t); } }
     if (lib) { const n = NC.applyLibrary(lib, P.tools); info.push(`Tool library: matched ${n} of ${P.tools.length} tools, holders included.`); }
-    if (opts.cimcoTools) { const n = NC.applyCimcoTools(opts.cimcoTools, P.tools); info.push(`CIMCO scanning post: matched ${n} of ${P.tools.length} tools, holders included (real Fusion tool data, not NC-comment guessing).`); }
+    if (opts.cimcoTools) { const n = NC.applyCimcoTools(opts.cimcoTools, P.tools); info.push(`Setup file: matched ${n} of ${P.tools.length} tools, holders included.`); }
     const opsList = opts.ops || (csv && csv.ops) || null, extraWarn = [];
     if (opsList) {
       const same = opsList.length === P.ops.length && opsList.every((o, i) => o.tool === P.ops[i].tool);
@@ -2393,9 +2465,13 @@ async function loadText(text, name, opts = {}) {
 
     S.ready = false; S.playing = false; updatePlay(); S.curOp = -1; S.cur = { i: 0, f: 0 }; S.tau = 0;
     S.text = text; S.csv = csv; S.lib = lib; S.setup = setup; S.opsList = opts.ops || null; S.exported = opts.exported || null; S.docName = opts.document || null;
-    // The real finished-part mesh from a CIMCO scanning post, when one was loaded - parsed and
+    // The .setup file's tool/holder data is kept so a reload of the same program (edited G-code,
+    // units change) re-applies it - dropping it put every holder back to the default shape.
+    S.cimcoTools = opts.cimcoTools || null; S.cimcoWarn = opts.cimcoWarn || [];
+    // The real finished-part mesh from the .setup file, when one was loaded - parsed and
     // kept here for a future true deviation-colouring feature, not rendered by anything yet.
     S.partMesh = opts.partMesh || null;
+    setCodeText(text);
     S.prog = P; S.name = name; S.tools = P.tools; S.toolsDirty = false;
     setText($('fname'), name + (opts.exported ? '   exported ' + opts.exported.slice(0, 16).replace('T', ' ') : ''));
     if (opts.stock) S.stock = Object.assign({}, opts.stock); else if (setup && setup.stock) S.stock = stockFromSetup(setup.stock); else autoStock();
@@ -2457,13 +2533,15 @@ async function handleFiles(files) {
       cimcoTools = parsed.tools.length ? parsed : null;
       partMesh = result.partMesh;
       cimcoWarn = result.warnings;
-    } catch (err) { console.error(err); toast('Could not read the CIMCO .setup/STL files: ' + err.message); }
+    } catch (err) { console.error(err); toast('Could not read the .setup/STL files: ' + err.message); }
   }
   const cimcoOpts = { cimcoTools, partMesh, cimcoWarn };
+  // Adding just a CSV/tool library to the program already on screen keeps its setup-file data.
+  const keptOpts = cimcoTools ? cimcoOpts : { cimcoTools: S.cimcoTools, partMesh: S.partMesh, cimcoWarn: S.cimcoWarn };
   if (b.job) return loadText(b.job.gcode, b.job.program || 'Job', Object.assign({ setup: b.job, lib: b.job.toolLibrary, ops: b.job.ops, exported: b.job.exported, document: b.job.document }, cimcoOpts));
   if (b.bundle) return loadText(b.bundle.gcode, b.bundle.name || 'Job bundle', Object.assign({ stock: b.bundle.stock, tools: b.bundle.tools, csv: b.csv, lib: b.lib, setup: b.setup }, cimcoOpts));
   if (b.text) return loadText(b.text, b.name, Object.assign({ csv: b.csv, lib: b.lib, setup: b.setup }, cimcoOpts));
-  if ((b.csv || b.lib || b.setup || cimcoTools) && S.text) return loadText(S.text, S.name, Object.assign({ csv: b.csv || S.csv, lib: b.lib || S.lib, setup: b.setup || S.setup, ops: S.opsList, exported: S.exported, document: S.docName }, cimcoOpts));
+  if ((b.csv || b.lib || b.setup || cimcoTools) && S.text) return loadText(S.text, S.name, Object.assign({ csv: b.csv || S.csv, lib: b.lib || S.lib, setup: b.setup || S.setup, ops: S.opsList, exported: S.exported, document: S.docName }, keptOpts));
   if (b.csv || b.lib || b.setup || cimcoTools) toast('Open the program (.NC) first, or select it together with the CSV, .tools and setup files.');
 }
 
@@ -2477,10 +2555,10 @@ function classifyFolderFile(name) {
   if (/\.nc$/i.test(name)) return { kind: 'NC', program: name.replace(/\.nc$/i, '') };
   if (/\.csv$/i.test(name)) return { kind: 'CSV', program: name.replace(/\.csv$/i, '') };
   if (/\.tools$/i.test(name)) return { kind: 'tools', program: name.replace(/\.tools$/i, '') };
-  if (/\.setup$/i.test(name)) return { kind: 'cimco-setup', program: name.replace(/\.setup$/i, '') };
-  if (/_STOCK\.stl$/i.test(name)) return { kind: 'cimco-stock', program: name.replace(/_STOCK\.stl$/i, '') };
-  if (/_PART\.stl$/i.test(name)) return { kind: 'cimco-part', program: name.replace(/_PART\.stl$/i, '') };
-  if (/_FIXTURE\.stl$/i.test(name)) return { kind: 'cimco-fixture', program: name.replace(/_FIXTURE\.stl$/i, '') };
+  if (/\.setup$/i.test(name)) return { kind: 'setup', program: name.replace(/\.setup$/i, '') };
+  if (/_STOCK\.stl$/i.test(name)) return { kind: 'stock', program: name.replace(/_STOCK\.stl$/i, '') };
+  if (/_PART\.stl$/i.test(name)) return { kind: 'part', program: name.replace(/_PART\.stl$/i, '') };
+  if (/_FIXTURE\.stl$/i.test(name)) return { kind: 'fixture', program: name.replace(/_FIXTURE\.stl$/i, '') };
   if (/\.json$/i.test(name)) return { kind: 'JSON', program: name.replace(/\.json$/i, '') };
   return null;
 }
@@ -2519,6 +2597,71 @@ function showPicker(list) {
   input.oninput = render;
   back.hidden = false;
   input.focus();
+}
+
+/* ---------- Load by program number from a remembered folder ----------
+   A web page can't open a folder by its path, so the folder is picked once (File System Access
+   API) and its handle is kept in IndexedDB - it stays the folder until "Folder:" is used to pick
+   another. Chrome may ask once per session to allow reading it again (that needs a click, so a
+   link can't silently do it). ?program=O1138 in the page link fills the box and loads it - the
+   hook for the planned ProShop button. Browsers without the API keep the old "Open job folder". */
+const FS_OK = typeof window.showDirectoryPicker === 'function';
+function idb(mode, fn) {
+  return new Promise((res, rej) => {
+    if (!window.indexedDB) { res(undefined); return; }
+    const rq = indexedDB.open('apw-floorsim', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+    rq.onerror = () => rej(rq.error);
+    rq.onsuccess = () => {
+      const db = rq.result, tx = db.transaction('kv', mode), r = fn(tx.objectStore('kv'));
+      tx.oncomplete = () => { db.close(); res(r && r.result); };
+      tx.onerror = () => { db.close(); rej(tx.error); };
+    };
+  });
+}
+const idbGet = k => idb('readonly', st => st.get(k));
+const idbSet = (k, v) => idb('readwrite', st => st.put(v, k));
+function showFolderName() { setText($('folderName'), S.folder ? S.folder.name : 'not set'); }
+async function setFolder() {
+  const h = await window.showDirectoryPicker({ id: 'apw-floorsim-jobs', mode: 'read' });
+  S.folder = h; showFolderName();
+  try { await idbSet('folder', h); } catch (e) { console.error(e); toast('Folder picked, but this browser could not remember it for next time.'); }
+  return h;
+}
+async function folderReadable(h, ask) {
+  if (!h.queryPermission) return true;
+  const o = { mode: 'read' };
+  if ((await h.queryPermission(o)) === 'granted') return true;
+  return ask ? (await h.requestPermission(o)) === 'granted' : false;
+}
+const normProgram = s => { s = String(s || '').trim().toUpperCase(); return /^\d+$/.test(s) ? 'O' + s : s; };
+async function loadProgram(raw, ask) {
+  const prog = normProgram(raw);
+  if (!prog) { toast('Type a program number, for example O1138.'); $('progNo').focus(); return false; }
+  $('progNo').value = prog;
+  if (!S.folder) {
+    if (!ask) return false;
+    try { await setFolder(); } catch (err) { if (err && err.name !== 'AbortError') toast('Could not open that folder: ' + err.message); return false; }
+  }
+  if (!(await folderReadable(S.folder, ask))) { toast(`Click Load to allow reading the "${S.folder.name}" folder.`); return false; }
+  const files = [];
+  try {
+    for await (const h of S.folder.values()) {
+      if (h.kind !== 'file') continue;
+      const c = classifyFolderFile(h.name);
+      if (c && c.program.toUpperCase() === prog) files.push(await h.getFile());
+    }
+  } catch (err) { console.error(err); toast('Could not read the folder: ' + err.message); return false; }
+  if (!files.some(f => /\.nc$/i.test(f.name))) { toast(`No ${prog}.NC in the "${S.folder.name}" folder.`); return false; }
+  await handleFiles(files);
+  return true;
+}
+async function startupFolder() {
+  if (!FS_OK) return;
+  $('progForm').hidden = false; $('folderFallback').hidden = true;
+  try { const h = await idbGet('folder'); if (h) { S.folder = h; showFolderName(); } } catch (e) { console.error(e); }
+  const q = new URLSearchParams(location.search).get('program');
+  if (q) { $('progNo').value = normProgram(q); loadProgram(q, false); }
 }
 
 // Restore one snapshot's full state: every plane's HeightSim, plus every tri-dexel signed grid.
@@ -2775,11 +2918,14 @@ function goTo(tau) {
   if (S.tau < tau - 1e-6 && S.cur.i < P.n) S.pendingSeek = tau;
 }
 const opStart = k => { const P = S.prog, m = P.ops[k].move; return m > 0 ? P.cumT[m - 1] : 0; };
-function goToOp(k) { if (!S.ready) return; S.pendingSeek = opStart(clamp(k, 0, S.prog.ops.length - 1)); S.playing = false; updatePlay(); }
+// Any navigation other than stepping by line hands the G-code panel back to following the sim.
+function clearLineSel() { S.selLine = null; S.selMove = -1; S.codeFree = false; }
+function goToOp(k) { if (!S.ready) return; clearLineSel(); S.pendingSeek = opStart(clamp(k, 0, S.prog.ops.length - 1)); S.playing = false; updatePlay(); }
 function togglePlay() {
   if (!S.ready) return;
   if (!S.playing && S.tau >= S.prog.total - 1e-6) S.pendingSeek = 0;
   S.playing = !S.playing; updatePlay();
+  if (S.playing) clearLineSel();
 }
 function updatePlay() {
   $('playIcon').innerHTML = S.playing ? '<path d="M6 4.5h4.2v15H6zM13.8 4.5H18v15h-4.2z"/>' : '<path d="M7 4.5v15L19.5 12z"/>';
@@ -2811,7 +2957,7 @@ let lastHud = 0;
 function updateHud(force) {
   const P = S.prog; if (!P || !P.n) return;
   const now = performance.now(); if (!force && now - lastHud < 90) return; lastHud = now;
-  const [x, y, z, i] = toolPos(S.cur.i, S.cur.f), no = P.TL[i], t = S.tools.find(q => q.no === no);
+  const c = dispCur(), [x, y, z, i] = toolPos(c.i, c.f), no = P.TL[i], t = S.tools.find(q => q.no === no);
   if (no !== S.hudTool && t) {
     S.hudTool = no;
     setText($('tNo'), no ? 'T' + no : 'T-');
@@ -2826,33 +2972,128 @@ function updateHud(force) {
   if (P.OP[i] !== S.curOp) { S.curOp = P.OP[i]; onOpChange(); }
   const op = P.ops[S.curOp];
   setText($('opNow'), op ? op.label : ''); setText($('opSub'), `Operation ${S.curOp + 1} of ${P.ops.length}`);
+  // The N on this op's tool-change (G100) line - where an operator restarts the machine for it.
+  if (op && op.seqN != null) { $('restartBox').hidden = false; setText($('restartN'), op.seqN); } else $('restartBox').hidden = true;
   setText($('pX'), x.toFixed(3)); setText($('pY'), y.toFixed(3)); setText($('pZ'), z.toFixed(3));
   setText($('timeTxt'), mmss(S.tau) + ' / ' + mmss(P.total));
   if (!S.scrubbing) $('scrub').value = P.total > 0 ? Math.round(S.tau / P.total * 10000) : 0;
-  if (P.LN[i] !== S.hudLine) { S.hudLine = P.LN[i]; renderCode(S.hudLine); }
+  const ln = S.selLine != null ? S.selLine : P.LN[i];
+  if (ln !== S.hudLine) renderCode(ln, !S.codeFree);
 }
-function renderCode(ln) {
-  const L = S.prog.lines, a = Math.max(1, ln - 6), b = Math.min(L.length, a + 12); let h = '';
-  for (let k = a; k <= b; k++) h += `<div class="ln${k === ln ? ' cur' : ''}"><i>${k}</i><span>${esc(L[k - 1])}</span></div>`;
-  $('code').innerHTML = h;
+// Where to draw the tool/HUD from. After stepping to a line, the sim sits at the START of the next
+// move (the same point as the end of the last move on that line) - show it as the end of that
+// last move, so a tool change or new op on the next line doesn't appear one step early.
+function dispCur() {
+  const c = S.cur;
+  if (S.selLine != null && S.selMove >= 0 && c.i === S.selMove + 1 && c.f === 0) return { i: S.selMove, f: 1 };
+  return c;
 }
 
-/* ---------- G-code editing: never saved, just re-run through the normal load path ---------- */
-function enterCodeEdit() {
-  if (!S.prog) return;
-  S.playing = false; updatePlay();
-  $('codeEdit').value = S.text || '';
-  $('code').hidden = true; $('codeEditWrap').hidden = false; $('codeEditBtn').hidden = true;
-  $('codeEdit').focus();
+/* ---------- G-code panel ----------
+   One textarea holds the whole program and is always editable - click and type, no Edit button.
+   While the text is unchanged it doubles as the line-by-line stepper: click a line to jump the sim
+   there, mouse wheel / arrow keys / the two buttons step one line, dragging the scrollbar moves to
+   the line in the middle. Once edited, it behaves as a plain text box until "Run edited code"
+   (nothing is saved - reverts on reload) or "Undo edits". The line numbers and the current-line
+   band are drawn beside/under it, so the line height is fixed (must match style.css). */
+const CODE_LH = 20, CODE_PADT = 6;
+const codeTa = $('code');
+let codeStarts = new Int32Array([0]), codeNorm = '', codeAutoTop = -1, codeLastTop = 0, codeWheelAcc = 0;
+function setCodeText(text) {
+  codeNorm = String(text).replace(/\r/g, '');   // same line split as the parser, so line numbers agree
+  codeTa.value = codeNorm;
+  const st = [0]; for (let k = codeNorm.indexOf('\n'); k >= 0; k = codeNorm.indexOf('\n', k + 1)) st.push(k + 1);
+  codeStarts = Int32Array.from(st);
+  S.selLine = null; S.selMove = -1; S.hudLine = -1; S.codeFree = false;
+  setCodeDirty(false);
 }
+function codeLineOf(pos) {
+  let lo = 0, hi = codeStarts.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (codeStarts[m] <= pos) lo = m; else hi = m - 1; }
+  return lo + 1;
+}
+function setCodeDirty(d) {
+  S.codeDirty = d; $('codeEditRow').hidden = !d; $('codeWrap').classList.toggle('dirty', d);
+  paintCode();
+}
+function paintCode() {
+  const top = codeTa.scrollTop, h = codeTa.clientHeight || 250, cur = S.hudLine;
+  const first = Math.max(1, Math.floor((top - CODE_PADT) / CODE_LH) + 1), last = Math.min(codeStarts.length, first + Math.ceil(h / CODE_LH) + 1);
+  let g = `<div style="height:0;margin-top:${CODE_PADT + (first - 1) * CODE_LH - top}px"></div>`;
+  for (let k = first; k <= last; k++) g += `<div${k === cur && !S.codeDirty ? ' class="cur"' : ''}>${k}</div>`;
+  $('codeGutter').innerHTML = g;
+  const hl = $('codeHl'), y = CODE_PADT + (cur - 1) * CODE_LH - top;
+  hl.hidden = S.codeDirty || cur < 1 || y < -CODE_LH || y > h;
+  hl.style.top = y + 'px';
+}
+function renderCode(ln, centre) {
+  S.hudLine = ln;
+  if (centre && !S.codeDirty) {
+    codeTa.scrollTop = Math.max(0, CODE_PADT + (ln - 1) * CODE_LH - ((codeTa.clientHeight || 250) - CODE_LH) / 2);
+    codeAutoTop = codeTa.scrollTop;
+  }
+  paintCode();
+}
+// Index of the last move whose source line is at or before L (-1 if none) - P.LN never decreases.
+function lineMove(L) {
+  const LN = S.prog.LN; let lo = 0, hi = S.prog.n;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (LN[m] <= L) lo = m + 1; else hi = m; }
+  return lo - 1;
+}
+// Put the sim at the end of line L: everything on and before it has run, nothing after it.
+function goToLine(L, centre) {
+  if (!S.ready || !S.prog) return;
+  L = clamp(Math.round(L), 1, codeStarts.length);
+  S.playing = false; updatePlay();
+  const k = lineMove(L);
+  S.selLine = L; S.selMove = k; S.codeFree = !centre;
+  S.pendingSeek = k >= 0 ? S.prog.cumT[k] : 0;
+  renderCode(L, centre);
+}
+function stepLine(d) {
+  if (!S.ready || S.codeDirty) return;
+  const from = S.selLine != null ? S.selLine : Math.max(1, S.hudLine);
+  goToLine(from + d, true);
+  if (document.activeElement === codeTa) { const p = codeStarts[S.selLine - 1]; codeTa.setSelectionRange(p, p); }
+}
+codeTa.addEventListener('scroll', () => {
+  const top = codeTa.scrollTop, auto = Math.abs(top - codeAutoTop) < 1, moved = top !== codeLastTop;
+  codeAutoTop = -1; codeLastTop = top;
+  paintCode();
+  if (auto || !moved || S.codeDirty || !S.ready) return;
+  // Dragged or swiped by hand: the line in the middle of the box becomes the current line.
+  goToLine(Math.floor((top + (codeTa.clientHeight || 250) / 2 - CODE_PADT) / CODE_LH) + 1, false);
+});
+codeTa.addEventListener('wheel', e => {
+  if (S.codeDirty || !S.ready) return;   // while editing, the wheel just scrolls the text
+  e.preventDefault();
+  const d = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+  codeWheelAcc = Math.abs(d) >= 40 ? d : codeWheelAcc + d;   // one mouse notch = exactly one line; trackpads accumulate
+  if (Math.abs(codeWheelAcc) >= 40) { const s = Math.sign(codeWheelAcc); codeWheelAcc = 0; stepLine(s); }
+}, { passive: false });
+codeTa.addEventListener('keydown', e => {
+  if (S.codeDirty || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); stepLine(e.key === 'ArrowDown' ? 1 : -1); }
+});
+codeTa.addEventListener('click', () => {
+  if (S.codeDirty || !S.ready || codeTa.selectionStart !== codeTa.selectionEnd) return;   // a drag-selection is for editing/copying
+  goToLine(codeLineOf(codeTa.selectionStart), false);
+});
+codeTa.addEventListener('input', () => {
+  const d = codeTa.value !== codeNorm;
+  if (d && !S.codeDirty) { S.playing = false; updatePlay(); }
+  setCodeDirty(d);
+});
+const reloadOpts = () => ({ csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName, cimcoTools: S.cimcoTools, partMesh: S.partMesh, cimcoWarn: S.cimcoWarn });
+// Throw away unsaved edits (loading anything else does this too).
 function exitCodeEdit() {
-  $('code').hidden = false; $('codeEditWrap').hidden = true; $('codeEditBtn').hidden = false;
+  if (!S.codeDirty) return;
+  codeTa.value = codeNorm; setCodeDirty(false); renderCode(S.hudLine, true);
 }
 async function runCodeEdit() {
-  const newText = $('codeEdit').value;
+  const newText = codeTa.value;
   const baseName = S.name.replace(/ \(edited\)$/, '');
-  await loadText(newText, baseName + ' (edited)', { csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName });
-  if (S.text === newText) exitCodeEdit();   // stay in edit mode on failure so the typo is still there to fix
+  await loadText(newText, baseName + ' (edited)', reloadOpts());   // a failed run leaves the edit in place to fix
 }
 function onOpChange() {
   applyPaths();
@@ -2863,7 +3104,8 @@ function onOpChange() {
 function buildOps() {
   const P = S.prog;
   $('ops').innerHTML = P.ops.map((o, k) => {
-    const badges = (o.comp ? `<span class="opbadge cc">${o.comp === 1 ? 'G41' : 'G42'}${o.compD ? ' D' + o.compD : ''}</span>` : '') +
+    const badges = (o.seqN != null ? `<span class="opbadge seq" title="Sequence number of this tool change - restart here">N${o.seqN}</span>` : '') +
+      (o.comp ? `<span class="opbadge cc">${o.comp === 1 ? 'G41' : 'G42'}${o.compD ? ' D' + o.compD : ''}</span>` : '') +
       (o.dim ? `<span class="opbadge dim">${esc(o.dim)}</span>` : '');
     return `<li class="${o.dim ? 'op-dim' : ''}"><button type="button" data-k="${k}" aria-current="false"><span class="sw" style="background:${toolHex(o.tool)}"></span><span class="t">T${o.tool}</span><span class="opline"><span class="oplabel">${esc(o.label)}</span>${badges ? `<span class="opbadges">${badges}</span>` : ''}</span></button></li>`;
   }).join('');
@@ -2915,11 +3157,14 @@ $('fileFolder').onchange = e => { const fl = [...e.target.files]; e.target.value
 $('pickerCancel').onclick = hidePicker;
 $('pickerBack').addEventListener('click', e => { if (e.target === $('pickerBack')) hidePicker(); });
 document.addEventListener('keydown', e => { if (e.code === 'Escape' && !$('pickerBack').hidden) hidePicker(); });
-$('codeEditBtn').onclick = enterCodeEdit;
 $('codeCancel').onclick = exitCodeEdit;
 $('codeRun').onclick = runCodeEdit;
+$('lineUp').onclick = () => stepLine(-1);
+$('lineDn').onclick = () => stepLine(1);
 $('fileLib').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; handleFiles(fl); };
-$('unitSel').onchange = () => { exitCodeEdit(); if (S.text) loadText(S.text, S.name, { csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName }); };
+$('unitSel').onchange = () => { exitCodeEdit(); if (S.text) loadText(S.text, S.name, reloadOpts()); };
+$('progForm').addEventListener('submit', e => { e.preventDefault(); loadProgram($('progNo').value, true); });
+$('folderBtn').onclick = () => { setFolder().catch(err => { if (err && err.name !== 'AbortError') toast('Could not open that folder: ' + err.message); }); };
 $('demoSel').onchange = e => {
   exitCodeEdit();
   const v = e.target.value; e.target.value = '';
@@ -2936,8 +3181,9 @@ document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
   if (S.sim && S.prog) { buildLegend(); for (const pl of S.planes.values()) refreshStock(pl.sim, pl.stock, true); }
 });
 document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
+$('projBtn').onclick = () => setOrtho(camera !== orthoCam);
 $('bPlay').onclick = togglePlay;
-$('bRestart').onclick = () => { if (S.ready) { S.pendingSeek = 0; S.playing = false; updatePlay(); } };
+$('bRestart').onclick = () => { if (S.ready) { clearLineSel(); S.pendingSeek = 0; S.playing = false; updatePlay(); } };
 $('bNext').onclick = () => { if (S.ready) goToOp(Math.min(S.curOp + 1, S.prog.ops.length - 1)); };
 $('bPrev').onclick = () => { if (S.ready) goToOp(S.tau - opStart(S.curOp) > 1.5 ? S.curOp : Math.max(0, S.curOp - 1)); };
 $('speedSel').onchange = e => { S.speed = +e.target.value; };
@@ -2952,7 +3198,7 @@ $('fixSel').onchange = e => { S.fixtures = e.target.value === 'on'; fixScene.vis
 $('ghostSel').onchange = e => { S.ghost = e.target.value === 'on'; if (STOCK.ghost) STOCK.ghost.visible = S.ghost; invalidate(); };
 const scrub = $('scrub');
 scrub.addEventListener('pointerdown', () => { S.scrubbing = true; });
-scrub.addEventListener('input', () => { if (!S.ready) return; S.playing = false; updatePlay(); S.pendingSeek = scrub.value / 10000 * S.prog.total; });
+scrub.addEventListener('input', () => { if (!S.ready) return; clearLineSel(); S.playing = false; updatePlay(); S.pendingSeek = scrub.value / 10000 * S.prog.total; });
 const endScrub = () => { S.scrubbing = false; };
 scrub.addEventListener('pointerup', endScrub); scrub.addEventListener('change', endScrub); scrub.addEventListener('blur', endScrub);
 document.addEventListener('keydown', e => {
@@ -2994,10 +3240,18 @@ function frame(now) {
     if (S.playing) invalidate();
   } catch (err) { console.error(err); if (!errShown) { errShown = true; toast('Something went wrong in the viewer: ' + err.message); } }
 }
-resize(); setView('fit');
+resize();
+let wantOrtho = false; try { wantOrtho = localStorage.getItem('floorsim.ortho') === '1'; } catch (e) { /* no storage */ }
+if (wantOrtho) setOrtho(true);
+setView('fit');
 requestAnimationFrame(frame);
-window.__floorsim = { S, orb, goTo, advance, loadText, handleFiles, openFolder, groupFolderFiles, enterCodeEdit, exitCodeEdit, runCodeEdit, fixScene, rebuild, STOCK, TILT_ROOT, TRI_ROOT, toolGroups, renderer, pickAt, camera, scene };   // handy for debugging in the console
+window.__floorsim = {
+  S, orb, goTo, advance, loadText, handleFiles, openFolder, groupFolderFiles, exitCodeEdit, runCodeEdit, goToLine, stepLine,
+  loadProgram, setFolder, setOrtho, fixScene, rebuild, STOCK, TILT_ROOT, TRI_ROOT, toolGroups, renderer, pickAt, scene,
+  get camera() { return camera; },
+};   // handy for debugging in the console
 loadText(NC.demoProgram(), 'Demo program', { stock: { xmin: -50, xmax: 50, ymin: -35, ymax: 35, zbot: -20, ztop: 0 } });
+startupFolder();
 })();
 
 </script>

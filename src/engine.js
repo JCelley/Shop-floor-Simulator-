@@ -150,7 +150,10 @@ const NC = (() => {
     for (let i = 0; i < text.length; i++) {
       const c = text[i];
       if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
-      else if (c === '"') q = true;
+      // A quote only opens a quoted field at the very start of that field. Real tool names carry
+      // bare inch marks mid-field (O1138.csv: `2.5" Dodeka Kenn Face Mill`), and treating those as
+      // a quote swallowed the following row whole - 64 ops read instead of 66.
+      else if (c === '"' && f === '') q = true;
       else if (c === ',') { row.push(f); f = ''; }
       else if (c === '\n') { row.push(f); rows.push(row); row = []; f = ''; }
       else if (c !== '\r') f += c;
@@ -180,7 +183,8 @@ const NC = (() => {
       // Column 8 ("Diameter control dim") holds "D<n> = DIM ..." when the operation-comment
       // note started with DIM (see the post's getDimNote()) - pull out just the DIM... part.
       const dimM = /DIM.*/i.exec(r[8] || '');
-      out.ops.push({ label: String(desc).replace(/^\s*OP\d+\s*\|\s*/i, '').trim(), tool: no, dim: dimM ? dimM[0].trim() : '' });
+      // Strip the setup prefix ("OP50  |", "OP61M B SIDE R650 |") - everything up to the first "|".
+      out.ops.push({ label: String(desc).replace(/^\s*OP\d[^|]*\|\s*/i, '').trim(), tool: no, dim: dimM ? dimM[0].trim() : '', seq: (r[0] || '').trim() });
       if (!out.tools.find(t => t.no === no)) out.tools.push({ no, ooh: parseFloat(r[4]) * k, holder: (r[5] || '').trim(), cutD: parseFloat(r[9]) * k, tipRaw: (r[11] || '').trim(), name: (r[12] || '').trim() });
     }
     return out;
@@ -401,9 +405,19 @@ const NC = (() => {
   // wired into rendering (see docs/plan for why).
   function cimcoToFloorsimSetup(parsed, meshes, programName) {
     const warnings = [];
+    // Each mesh's own offset places it in the post's world frame, and the WCS line is where the
+    // program's zero sits in that SAME frame - the toolpath is relative to the WCS, so the WCS
+    // origin has to come back off every mesh. Units: the WCS line is mm, the mesh offsets carry
+    // their own UI/UM flag - inferred from the one real file with a nonzero WCS (O1138: WCS
+    // Z120.193 = offset Z4.732in x 25.4 exactly), not documented. Missing this drew a job on a
+    // riser 120mm too high, with every tool buried in the fixture. A rotated WCS (nonzero A/B/C)
+    // is unverified and warned about rather than guessed at.
+    const w = parsed.wcs || { x: 0, y: 0, z: 0, a: 0, b: 0, c: 0 };
+    if (Math.abs(w.a || 0) > 1e-6 || Math.abs(w.b || 0) > 1e-6 || Math.abs(w.c || 0) > 1e-6) warnings.push('The .setup file\'s WCS has a nonzero A/B/C rotation - only its position is applied here, check placement carefully.');
     const place = (mesh, ref, label) => {
       const t = applyCimcoRef(mesh, ref);
-      if (t.nonzeroRot) warnings.push(`${label} has a nonzero A/B/C rotation in the .setup file - this rotation convention is unverified against real Fusion/CIMCO behavior, check placement carefully.`);
+      if (t.nonzeroRot) warnings.push(`${label} has a nonzero A/B/C rotation in the .setup file - this rotation convention is unverified, check placement carefully.`);
+      for (let i = 0; i < t.pos.length; i += 3) { t.pos[i] -= w.x; t.pos[i + 1] -= w.y; t.pos[i + 2] -= w.z; }
       return t;
     };
     let stock = null, fixtures = [], partMesh = null;
@@ -482,6 +496,10 @@ const NC = (() => {
     let cycleR = 0, cycleZ = 0, cycleInit = 0;
     let pendingLabel = null, forceNewOp = true, init = null;
     let comp = 0, compD = 0; // 0 off, 1 = G41 (left), 2 = G42 (right); compD = the D register named on that same block
+    // The N word on the current tool-change block (G100/M6) - the sequence number an operator types
+    // to restart the machine at that tool. Every op under one tool change shares it. Other N words
+    // (the post's N96001/N99999 length-check macros) are deliberately not tracked.
+    let curSeqN = null, pendingSeqN = null;
 
     const getTool = no => {
       let t = tools.get(no);
@@ -493,7 +511,7 @@ const NC = (() => {
       if (!init) init = { x: nx, y: ny, z: nz };
       if (forceNewOp || pendingLabel !== null || !ops.length) {
         const t = getTool(tool);
-        ops.push({ label: pendingLabel || t.name || ('T' + tool), tool, move: X.length, line: ln, comp: 0, compD: 0, dim: '' });
+        ops.push({ label: pendingLabel || t.name || ('T' + tool), tool, move: X.length, line: ln, comp: 0, compD: 0, dim: '', seqN: curSeqN });
         pendingLabel = null; forceNewOp = false;
       }
       X.push(nx); Y.push(ny); Z.push(nz); K.push(kind); F.push(feed);
@@ -565,9 +583,11 @@ const NC = (() => {
 
     const block = (words, ln) => {
       const g = [], mc = [], a = {};
+      let nWord = null;
       for (const [c, v] of words) {
         if (c === 'G') g.push(v);
         else if (c === 'M') mc.push(Math.round(v));
+        else if (c === 'N') nWord = v;
         else if ('XYZIJKRQPFSTHDL'.includes(c)) a[c] = v;
         else if ('ABC'.includes(c)) { if (Math.abs(v) > 1e-9) sawRotary = true; }
       }
@@ -607,7 +627,7 @@ const NC = (() => {
       if ((g.includes(41) || g.includes(42)) && 'D' in a) compD = a.D;
       if ('F' in a) feed = a.F * k();
       if ('S' in a) spindle = a.S;
-      if ('T' in a) pendingTool = Math.round(a.T);
+      if ('T' in a) { pendingTool = Math.round(a.T); pendingSeqN = nWord; }   // "N10 T1" then "M6" on its own line
       for (const m of mc) {
         if (m === 3 || m === 4) spinOn = true;
         else if (m === 5) spinOn = false;
@@ -617,7 +637,7 @@ const NC = (() => {
         else if (m === 88 || m === 494) coolant |= 4;
         else if (m === 89 || m === 495) coolant &= ~4;
       }
-      if (mc.includes(6) || toolChange) { tool = pendingTool; getTool(tool); forceNewOp = true; }
+      if (mc.includes(6) || toolChange) { tool = pendingTool; getTool(tool); forceNewOp = true; const sn = nWord !== null ? nWord : pendingSeqN; curSeqN = sn !== null ? Math.round(sn) : null; }
       if (skip) return;
 
       const hasXY = ('X' in a) || ('Y' in a), hasXYZ = hasXY || ('Z' in a);

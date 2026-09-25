@@ -141,5 +141,34 @@ for (const target of [240, 360, 520]) {
   ok(csv.ops[2].dim === '', `no D-value and no note yields nothing: "${csv.ops[2].dim}"`);
 }
 
+/* ---------- setup-sheet CSV: bare inch marks, long setup prefixes, the Seq# column ----------
+   Real O1138.csv rows: a tool name with an inch mark mid-field (2.5" Dodeka ...) used to be read
+   as the start of a quoted field and swallowed the next row whole (64 ops instead of 66), so the
+   operation names stopped lining up with the program. */
+{
+  const head = 'Seq#,Sequence Description,Tool #,G-Code Tool #,OOH,Holder,RTA #,Length control Dim,Diameter control dim,Cut Diameter,Gage Length,Tip (CR or Angle),T-description,LC\n';
+  const text = head +
+    '0,NC PRG: O1138 | STOCK: X = 2.250 in | Y = 5.442 in | Z = 0.170 in,,,,,,,,,,,,\n' +
+    '10,OP61M B SIDE R650 | Rough Face (2),I-224,T25,1.32, FACE MILL,,3.75,,2.5,H25,45°,2.5" Dodeka Kenn Face Mill,Kenn.\n' +
+    '10.1,OP61M B SIDE R650 | Rough Face (2),I-224,T25,1.32, FACE MILL,,3.75,,2.5,H25,45°,2.5" Dodeka Kenn Face Mill,Kenn.\n' +
+    '15,OP61M B SIDE R650 | Finish Face (2),I-224,T08,1.32, FACE MILL,,3.75,,2.5,H8,45°,"quoted, with comma",Kenn.\n';
+  const csv = NC.parseSetupCsv(text);
+  ok(csv.ops.length === 3, `every row survives a bare inch mark in a tool name (got ${csv.ops.length} of 3)`);
+  ok(csv.ops.map(o => o.seq).join(',') === '10,10.1,15', 'Seq# kept per op: ' + csv.ops.map(o => o.seq).join(','));
+  ok(csv.ops[0].label === 'Rough Face (2)', `a long setup prefix ("OP61M B SIDE R650 |") is stripped: "${csv.ops[0].label}"`);
+  ok(csv.ops[2].tool === 8, 'a properly quoted field with a comma still parses');
+}
+
+/* ---------- restart sequence number: the N on each op's tool-change line ---------- */
+{
+  const P = NC.parseProgram([
+    'O1000', 'N99999', 'N96001 #3000=1(LENGTH CHECK)',
+    'N10 G100 T1 X0 Y0 G43 Z5. H1 D1 S1000 M03', '(FIRST OP)', 'G1 X1. F10.', '(SECOND OP SAME TOOL)', 'G1 X2.',
+    'N20 T2', 'M06', 'G1 X3.',
+    'G100 T3 X0 Y0 G43 Z5. H3 D3 S1000 M03', 'G1 X4.',
+  ].join('\n'), { units: 'mm' });
+  ok(P.ops.map(o => o.seqN).join(',') === '10,10,20,', 'N from the G100 line for every op under that tool, from the T line for an M6 change, none when absent: ' + P.ops.map(o => o.seqN).join(','));
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);
