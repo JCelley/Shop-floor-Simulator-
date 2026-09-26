@@ -156,10 +156,10 @@ button, select, input { font: inherit; color: inherit; }
 /* One real textarea holds the whole program (type to edit, no Edit button). The current-line
    band and the line numbers are drawn underneath / beside it and kept in step by app.js, which
    is why the line height is fixed in px here and mirrored as CODE_LH there. */
-.codewrap { position: relative; flex: 1; min-height: 120px; background: transparent; border-left: 2px solid transparent; overflow: hidden; pointer-events: auto; }
-.codewrap.dirty { border-left-color: var(--accent); }
+/* No border or focus ring: John wants the code to blend into the view (2026-09-26). */
+.codewrap { position: relative; flex: 1; min-height: 120px; background: transparent; overflow: hidden; pointer-events: auto; }
 #code { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border: 0; resize: none; outline: none; background: transparent; color: var(--ov-ink); text-shadow: var(--ov-halo); caret-color: var(--accent); font: 600 13.5px/20px var(--mono); padding: 6px 8px 6px calc(5ch + 16px); white-space: pre; overflow: auto; z-index: 1; tab-size: 4; scrollbar-color: rgba(255, 255, 255, .45) transparent; }
-#code:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+#code:focus, #code:focus-visible { box-shadow: none; outline: none; }
 .code-hl { position: absolute; left: 0; right: 0; height: 20px; background: rgba(242, 183, 5, .38); z-index: 0; pointer-events: none; }
 .code-gutter { position: absolute; left: 0; top: 0; bottom: 0; width: calc(5ch + 8px); font: 500 13.5px/20px var(--mono); color: #d5dbe2; text-shadow: var(--ov-halo); text-align: right; padding-right: 6px; pointer-events: none; z-index: 2; overflow: hidden; border-right: 1px solid rgba(255, 255, 255, .25); }
 .code-gutter div { height: 20px; }
