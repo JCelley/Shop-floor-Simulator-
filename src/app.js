@@ -607,7 +607,9 @@ async function loadText(text, name, opts = {}) {
     const opsList = opts.ops || (csv && csv.ops) || null, extraWarn = [];
     if (opsList) {
       const same = opsList.length === P.ops.length && opsList.every((o, i) => o.tool === P.ops[i].tool);
-      if (same) P.ops.forEach((o, i) => { if (opsList[i].label) o.label = opsList[i].label; if (opsList[i].dim) o.dim = opsList[i].dim; });
+      // seq: the setup sheet's own sequence number for the op (30, 30.1, 30.2...), shown in the list;
+      // the Restart seq # box keeps the tool change's N (seqN).
+      if (same) P.ops.forEach((o, i) => { if (opsList[i].label) o.label = opsList[i].label; if (opsList[i].dim) o.dim = opsList[i].dim; if (opsList[i].seq) o.seq = String(opsList[i].seq).trim(); });
       else if (opts.ops) extraWarn.push(`The job file lists ${opsList.length} operations but the program has ${P.ops.length}, so operation names come from the program's own comments. The file may be out of date.`);
     }
     // Cross-setup stock chaining: this setup's stock comes from whatever the LAST fully-simulated
@@ -655,12 +657,14 @@ async function loadText(text, name, opts = {}) {
     if (opts.cimcoWarn && opts.cimcoWarn.length) extraWarn.push(...opts.cimcoWarn);
     const lines = info.concat(P.notes), warnList = P.warnings.concat(extraWarn, checkSetup(P, S.stock, setup, !!chainSeed));
     $('warns').innerHTML = lines.map(esc).join('<br>') + (warnList.length ? (lines.length ? '<br>' : '') + '<b>Heads up</b><br>' + warnList.map(esc).join('<br>') : '');
+    $('notesDot').hidden = !warnList.length;   // the Notes menu lights up when there is a real warning
     S.quietBusy = !!opts.live;   // a live edit shows a small "updating" tag, not the full-screen cover
     try { await rebuild(!opts.live); } finally { S.quietBusy = false; }
-    if (S.stockMesh && !chainSeed && S.triDexel) $('warns').innerHTML += (warnList.length ? '<br>' : '<br><b>Heads up</b><br>') + esc('This program uses tilted planes or an undercut tool, so the starting stock is drawn as a plain block, not the shape in the setup file.');
+    if (S.stockMesh && !chainSeed && S.triDexel) { $('warns').innerHTML += (warnList.length ? '<br>' : '<br><b>Heads up</b><br>') + esc('This program uses tilted planes or an undercut tool, so the starting stock is drawn as a plain block, not the shape in the setup file.'); $('notesDot').hidden = false; }
     if (chainSeed && S.chainCoverage != null && S.chainCoverage < 0.05) {
       $('warns').innerHTML += (warnList.length || lines.length ? '<br>' : '<b>Heads up</b><br>') +
         `The chained stock from "${chainSeed.fromName}" barely overlaps this setup's stock box (${Math.round(S.chainCoverage * 100)}% covered) - the two setups' WCS placements may not line up, or this pairing may be wrong.`;
+      $('notesDot').hidden = false;
     }
   } catch (err) { console.error(err); hideBusy(); toast('Could not read that program: ' + err.message); }
 }
@@ -1320,7 +1324,8 @@ function onOpChange() {
 function buildOps() {
   const P = S.prog;
   $('ops').innerHTML = P.ops.map((o, k) => {
-    const badges = (o.seqN != null ? `<span class="opbadge seq" title="Sequence number of this tool change - restart here">N${o.seqN}</span>` : '') +
+    const badges = (o.seq ? `<span class="opbadge seq" title="Sequence number from the setup sheet">N${esc(o.seq)}</span>`
+      : o.seqN != null ? `<span class="opbadge seq" title="Sequence number of this tool change - restart here">N${o.seqN}</span>` : '') +
       (o.comp ? `<span class="opbadge cc">${o.comp === 1 ? 'G41' : 'G42'}${o.compD ? ' D' + o.compD : ''}</span>` : '') +
       (o.dim ? `<span class="opbadge dim">${esc(o.dim)}</span>` : '');
     return `<li class="${o.dim ? 'op-dim' : ''}"><button type="button" data-k="${k}" aria-current="false"><span class="sw" style="background:${toolHex(o.tool)}"></span><span class="t">T${o.tool}</span><span class="opline"><span class="oplabel">${esc(o.label)}</span>${badges ? `<span class="opbadges">${badges}</span>` : ''}</span></button></li>`;
@@ -1374,6 +1379,11 @@ $('pickerCancel').onclick = hidePicker;
 $('pickerBack').addEventListener('click', e => { if (e.target === $('pickerBack')) hidePicker(); });
 document.addEventListener('keydown', e => { if (e.code === 'Escape' && !$('pickerBack').hidden) hidePicker(); });
 $('codeCancel').onclick = undoEdits;
+// Settings menus: one open at a time; a click anywhere outside, or Escape, closes it.
+const menus = [...document.querySelectorAll('details.menu')];
+for (const m of menus) m.addEventListener('toggle', () => { if (m.open) for (const o of menus) if (o !== m) o.open = false; });
+document.addEventListener('pointerdown', e => { for (const m of menus) if (m.open && !m.contains(e.target)) m.open = false; });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') for (const m of menus) m.open = false; });
 $('codeToggle').onclick = () => {
   const show = $('codePane').hidden; $('codePane').hidden = !show;
   $('codeToggle').setAttribute('aria-pressed', String(show));

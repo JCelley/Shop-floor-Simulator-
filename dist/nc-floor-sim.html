@@ -87,10 +87,22 @@ button, select, input { font: inherit; color: inherit; }
 .viewport { position: relative; min-height: 0; overflow: hidden; background: radial-gradient(120% 100% at 50% 30%, var(--vp-a), var(--vp-b)); touch-action: none; }
 .viewport canvas { display: block; width: 100%; height: 100%; cursor: grab; }
 .viewport canvas:active { cursor: grabbing; }
-.side { overflow-y: auto; background: var(--panel); border-left: 1px solid var(--line); min-height: 0; }
+/* Right panel: everything fixed except the operations list, which is the only thing that scrolls. */
+.side { display: flex; flex-direction: column; overflow: hidden; background: var(--panel); border-left: 1px solid var(--line); min-height: 0; }
 
 /* ---------- viewport overlays ---------- */
-.vp-top { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; gap: 10px; pointer-events: none; flex-wrap: wrap; }
+.vp-top { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; gap: 10px; pointer-events: none; flex-wrap: wrap; z-index: 7; }
+.vp-left { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+/* Settings menus (Stock / Tools / Display / Notes): a button like the others, opening a panel below. */
+.menu > summary { list-style: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 13px; font-size: 15px; font-weight: 600; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); pointer-events: auto; user-select: none; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary::after { content: ""; width: 0; height: 0; border: 5px solid transparent; border-top-color: currentColor; margin-top: 5px; opacity: .6; }
+.menu[open] > summary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.menu-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--panel2); }
+.menu-dot[hidden] { display: none; }
+.menu .pop { position: absolute; left: 0; top: 46px; width: min(440px, 100%); max-height: calc(100vh - 240px); overflow-y: auto; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px 14px; box-shadow: var(--shadow); pointer-events: auto; }
+.menu .pop h3 { margin: 0 0 10px; font-size: 17px; }
+.menu .pop .warns { padding: 0; font-size: 14px; }
 .seg { display: inline-flex; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; pointer-events: auto; box-shadow: var(--shadow); }
 .seg button { min-height: 36px; padding: 0 13px; border: 0; background: transparent; font-weight: 600; cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--line); }
@@ -125,8 +137,7 @@ button, select, input { font: inherit; color: inherit; }
 /* ---------- side panel ---------- */
 .side section, .side details { border-bottom: 1px solid var(--line); }
 .side h2 { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: var(--muted); }
-.now-pin { position: sticky; top: 0; z-index: 3; background: var(--panel); padding: 14px 14px 10px; box-shadow: 0 6px 8px -8px rgba(0, 0, 0, .35); }
-.now { padding: 0 14px 14px; }
+.now-pin { flex: none; padding: 14px; }
 .now-head { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
 .tnum { font: 700 68px/.85 var(--font); letter-spacing: -.02em; min-width: 1.4ch; }
 .tname { font-size: 19px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
@@ -166,9 +177,9 @@ button, select, input { font: inherit; color: inherit; }
 .code-gutter div.cur { color: #fff; font-weight: 700; }
 .code-edit-row { display: flex; gap: 8px; margin-top: 6px; align-items: center; flex-wrap: wrap; pointer-events: auto; }
 .code-edit-note { font-size: 13px; font-weight: 600; color: var(--ov-ink); text-shadow: var(--ov-halo); }
-.opsec { padding: 10px 0 6px; }
+.opsec { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 0 0; border-bottom: 0 !important; }
 .opsec h2 { padding: 0 14px; }
-#ops { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
+#ops { list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0; overflow-y: auto; }
 #ops button { width: 100%; display: grid; grid-template-columns: 14px 3.2ch 1fr; gap: 10px; align-items: center; text-align: left; padding: 8px 14px; border: 0; border-left: 4px solid transparent; background: transparent; cursor: pointer; min-height: 42px; }
 #ops button:hover { background: var(--panel2); }
 #ops button[aria-current="true"] { background: var(--panel2); border-left-color: var(--accent); font-weight: 700; }
@@ -216,7 +227,9 @@ label.f select { font-family: var(--font); }
 
 @media (max-width: 980px) {
   .main { grid-template-columns: 1fr; grid-template-rows: minmax(0, 56%) minmax(0, 44%); }
-  .side { border-left: 0; border-top: 1px solid var(--line); }
+  /* too short to fix the top block: the panel scrolls as one instead (still a single scrollbar) */
+  .side { display: block; overflow-y: auto; border-left: 0; border-top: 1px solid var(--line); }
+  #ops { overflow: visible; }
   .transport { grid-template-columns: auto minmax(0, 1fr); }
   .time, .speed { grid-row: 2; }
   .fname { display: none; }
@@ -255,9 +268,81 @@ label.f select { font-family: var(--font); }
   <main class="main">
     <section class="viewport" id="vp" aria-label="3D simulation view">
       <div class="vp-top">
+        <div class="vp-left">
         <div class="seg" role="group" aria-label="Colour mode">
           <button type="button" data-mode="progress" aria-pressed="true">Progress</button>
           <button type="button" data-mode="tool" aria-pressed="false">By tool</button>
+        </div>
+        <!-- Settings menus: each opens a panel over the top-left of the view (one at a time). -->
+        <details class="menu" id="menuStock">
+          <summary>Stock</summary>
+          <div class="pop">
+            <h3>Stock and resolution</h3>
+            <div class="grid2">
+              <label class="f">X min<input id="sxmin" type="number" step="0.1"></label>
+              <label class="f">X max<input id="sxmax" type="number" step="0.1"></label>
+              <label class="f">Y min<input id="symin" type="number" step="0.1"></label>
+              <label class="f">Y max<input id="symax" type="number" step="0.1"></label>
+              <label class="f">Z bottom<input id="szbot" type="number" step="0.1"></label>
+              <label class="f">Z top<input id="sztop" type="number" step="0.1"></label>
+            </div>
+            <div class="grid2" style="margin-top:10px">
+              <label class="f">Program units
+                <select id="unitSel"><option value="auto">Auto</option><option value="inch">Inches</option><option value="mm">Millimetres</option></select>
+              </label>
+              <label class="f">Grid resolution
+                <select id="resSel">
+                  <option value="200">Draft, 200 cells</option>
+                  <option value="280">Fast, 280 cells</option>
+                  <option value="360" selected>Balanced, 360 cells</option>
+                  <option value="520">Fine, 520 cells</option>
+                  <option value="800">Ultra, 800 cells</option>
+                </select>
+              </label>
+              <div style="display:flex;align-items:end"><button class="btn primary" id="applyStock" type="button">Apply stock</button></div>
+            </div>
+            <p class="note">Stock box in program coordinates, shown in mm. Size comes from the setup-sheet CSV when there is one; its position is a guess from the toolpath until the Fusion setup supplies it.</p>
+          </div>
+        </details>
+        <details class="menu" id="menuTools">
+          <summary>Tools</summary>
+          <div class="pop">
+            <h3>Tools and holders</h3>
+            <div id="toolCards"></div>
+            <button class="btn primary" id="applyTools" type="button">Apply tool changes</button>
+            <p class="note">Sizes come from the Fusion tool library (.tools) if you load one, then the setup-sheet CSV, then the tool name in the program.</p>
+          </div>
+        </details>
+        <details class="menu" id="menuDisplay">
+          <summary>Display</summary>
+          <div class="pop">
+            <h3>Display</h3>
+            <div class="grid2">
+              <label class="f">Toolpath lines
+                <select id="pathSel"><option value="op">Current operation</option><option value="all">Whole program</option><option value="off">Hidden</option></select>
+              </label>
+              <label class="f">Rapid moves
+                <select id="rapidSel"><option value="off">Hidden</option><option value="on">Shown</option></select>
+              </label>
+              <label class="f">Holder
+                <select id="holderSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
+              </label>
+              <label class="f">Workholding
+                <select id="fixSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
+              </label>
+              <label class="f">Original stock outline
+                <select id="ghostSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
+              </label>
+            </div>
+          </div>
+        </details>
+        <details class="menu" id="menuNotes">
+          <summary>Notes<span class="menu-dot" id="notesDot" hidden></span></summary>
+          <div class="pop">
+            <h3>Notes about this program</h3>
+            <div class="warns" id="warns"></div>
+          </div>
+        </details>
         </div>
         <div class="seg" role="group" aria-label="Camera">
           <button type="button" data-view="iso">Iso</button>
@@ -300,8 +385,8 @@ label.f select { font-family: var(--font); }
     </section>
 
     <aside class="side">
-      <!-- Pinned: the active tool, what it is doing and where to restart stay in view while the
-           rest of the panel scrolls underneath. -->
+      <!-- Fixed: the active tool, what it is doing, where to restart, spindle/feed/coolant and
+           position. Only the operations list below scrolls (John: one scrollbar, not two). -->
       <section class="now-pin" aria-live="off">
         <div class="now-head">
           <div class="tnum" id="tNo">T1</div>
@@ -314,8 +399,6 @@ label.f select { font-family: var(--font); }
         <div class="opnow" id="opNow"></div>
         <div class="opsub" id="opSub"></div>
         <div class="restart" id="restartBox" hidden><span>Restart seq #</span><b id="restartN"></b></div>
-      </section>
-      <section class="now">
         <div class="reads">
           <div class="read"><span>Spindle rpm</span><b id="rSpin">0</b></div>
           <div class="read"><span id="rFeedL">Feed mm/min</span><b id="rFeed">0</b></div>
@@ -328,69 +411,6 @@ label.f select { font-family: var(--font); }
         <h2>Operations</h2>
         <ol id="ops"></ol>
       </section>
-      <div class="warns" id="warns"></div>
-
-      <details>
-        <summary>Stock and resolution</summary>
-        <div class="pad">
-          <div class="grid2">
-            <label class="f">X min<input id="sxmin" type="number" step="0.1"></label>
-            <label class="f">X max<input id="sxmax" type="number" step="0.1"></label>
-            <label class="f">Y min<input id="symin" type="number" step="0.1"></label>
-            <label class="f">Y max<input id="symax" type="number" step="0.1"></label>
-            <label class="f">Z bottom<input id="szbot" type="number" step="0.1"></label>
-            <label class="f">Z top<input id="sztop" type="number" step="0.1"></label>
-          </div>
-          <div class="grid2" style="margin-top:10px">
-            <label class="f">Program units
-              <select id="unitSel"><option value="auto">Auto</option><option value="inch">Inches</option><option value="mm">Millimetres</option></select>
-            </label>
-            <label class="f">Grid resolution
-              <select id="resSel">
-                <option value="200">Draft, 200 cells</option>
-                <option value="280">Fast, 280 cells</option>
-                <option value="360" selected>Balanced, 360 cells</option>
-                <option value="520">Fine, 520 cells</option>
-                <option value="800">Ultra, 800 cells</option>
-              </select>
-            </label>
-            <div style="display:flex;align-items:end"><button class="btn primary" id="applyStock" type="button">Apply stock</button></div>
-          </div>
-          <p class="note">Stock box in program coordinates, shown in mm. Size comes from the setup-sheet CSV when there is one; its position is a guess from the toolpath until the Fusion setup supplies it.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Tools and holders</summary>
-        <div class="pad">
-          <div id="toolCards"></div>
-          <button class="btn primary" id="applyTools" type="button">Apply tool changes</button>
-          <p class="note">Sizes come from the Fusion tool library (.tools) if you load one, then the setup-sheet CSV, then the tool name in the program.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Display</summary>
-        <div class="pad">
-          <div class="grid2">
-            <label class="f">Toolpath lines
-              <select id="pathSel"><option value="op">Current operation</option><option value="all">Whole program</option><option value="off">Hidden</option></select>
-            </label>
-            <label class="f">Rapid moves
-              <select id="rapidSel"><option value="off">Hidden</option><option value="on">Shown</option></select>
-            </label>
-            <label class="f">Holder
-              <select id="holderSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
-            </label>
-            <label class="f">Workholding
-              <select id="fixSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
-            </label>
-            <label class="f">Original stock outline
-              <select id="ghostSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
-            </label>
-          </div>
-        </div>
-      </details>
     </aside>
   </main>
 
@@ -2795,7 +2815,9 @@ async function loadText(text, name, opts = {}) {
     const opsList = opts.ops || (csv && csv.ops) || null, extraWarn = [];
     if (opsList) {
       const same = opsList.length === P.ops.length && opsList.every((o, i) => o.tool === P.ops[i].tool);
-      if (same) P.ops.forEach((o, i) => { if (opsList[i].label) o.label = opsList[i].label; if (opsList[i].dim) o.dim = opsList[i].dim; });
+      // seq: the setup sheet's own sequence number for the op (30, 30.1, 30.2...), shown in the list;
+      // the Restart seq # box keeps the tool change's N (seqN).
+      if (same) P.ops.forEach((o, i) => { if (opsList[i].label) o.label = opsList[i].label; if (opsList[i].dim) o.dim = opsList[i].dim; if (opsList[i].seq) o.seq = String(opsList[i].seq).trim(); });
       else if (opts.ops) extraWarn.push(`The job file lists ${opsList.length} operations but the program has ${P.ops.length}, so operation names come from the program's own comments. The file may be out of date.`);
     }
     // Cross-setup stock chaining: this setup's stock comes from whatever the LAST fully-simulated
@@ -2843,12 +2865,14 @@ async function loadText(text, name, opts = {}) {
     if (opts.cimcoWarn && opts.cimcoWarn.length) extraWarn.push(...opts.cimcoWarn);
     const lines = info.concat(P.notes), warnList = P.warnings.concat(extraWarn, checkSetup(P, S.stock, setup, !!chainSeed));
     $('warns').innerHTML = lines.map(esc).join('<br>') + (warnList.length ? (lines.length ? '<br>' : '') + '<b>Heads up</b><br>' + warnList.map(esc).join('<br>') : '');
+    $('notesDot').hidden = !warnList.length;   // the Notes menu lights up when there is a real warning
     S.quietBusy = !!opts.live;   // a live edit shows a small "updating" tag, not the full-screen cover
     try { await rebuild(!opts.live); } finally { S.quietBusy = false; }
-    if (S.stockMesh && !chainSeed && S.triDexel) $('warns').innerHTML += (warnList.length ? '<br>' : '<br><b>Heads up</b><br>') + esc('This program uses tilted planes or an undercut tool, so the starting stock is drawn as a plain block, not the shape in the setup file.');
+    if (S.stockMesh && !chainSeed && S.triDexel) { $('warns').innerHTML += (warnList.length ? '<br>' : '<br><b>Heads up</b><br>') + esc('This program uses tilted planes or an undercut tool, so the starting stock is drawn as a plain block, not the shape in the setup file.'); $('notesDot').hidden = false; }
     if (chainSeed && S.chainCoverage != null && S.chainCoverage < 0.05) {
       $('warns').innerHTML += (warnList.length || lines.length ? '<br>' : '<b>Heads up</b><br>') +
         `The chained stock from "${chainSeed.fromName}" barely overlaps this setup's stock box (${Math.round(S.chainCoverage * 100)}% covered) - the two setups' WCS placements may not line up, or this pairing may be wrong.`;
+      $('notesDot').hidden = false;
     }
   } catch (err) { console.error(err); hideBusy(); toast('Could not read that program: ' + err.message); }
 }
@@ -3508,7 +3532,8 @@ function onOpChange() {
 function buildOps() {
   const P = S.prog;
   $('ops').innerHTML = P.ops.map((o, k) => {
-    const badges = (o.seqN != null ? `<span class="opbadge seq" title="Sequence number of this tool change - restart here">N${o.seqN}</span>` : '') +
+    const badges = (o.seq ? `<span class="opbadge seq" title="Sequence number from the setup sheet">N${esc(o.seq)}</span>`
+      : o.seqN != null ? `<span class="opbadge seq" title="Sequence number of this tool change - restart here">N${o.seqN}</span>` : '') +
       (o.comp ? `<span class="opbadge cc">${o.comp === 1 ? 'G41' : 'G42'}${o.compD ? ' D' + o.compD : ''}</span>` : '') +
       (o.dim ? `<span class="opbadge dim">${esc(o.dim)}</span>` : '');
     return `<li class="${o.dim ? 'op-dim' : ''}"><button type="button" data-k="${k}" aria-current="false"><span class="sw" style="background:${toolHex(o.tool)}"></span><span class="t">T${o.tool}</span><span class="opline"><span class="oplabel">${esc(o.label)}</span>${badges ? `<span class="opbadges">${badges}</span>` : ''}</span></button></li>`;
@@ -3562,6 +3587,11 @@ $('pickerCancel').onclick = hidePicker;
 $('pickerBack').addEventListener('click', e => { if (e.target === $('pickerBack')) hidePicker(); });
 document.addEventListener('keydown', e => { if (e.code === 'Escape' && !$('pickerBack').hidden) hidePicker(); });
 $('codeCancel').onclick = undoEdits;
+// Settings menus: one open at a time; a click anywhere outside, or Escape, closes it.
+const menus = [...document.querySelectorAll('details.menu')];
+for (const m of menus) m.addEventListener('toggle', () => { if (m.open) for (const o of menus) if (o !== m) o.open = false; });
+document.addEventListener('pointerdown', e => { for (const m of menus) if (m.open && !m.contains(e.target)) m.open = false; });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') for (const m of menus) m.open = false; });
 $('codeToggle').onclick = () => {
   const show = $('codePane').hidden; $('codePane').hidden = !show;
   $('codeToggle').setAttribute('aria-pressed', String(show));

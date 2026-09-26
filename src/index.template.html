@@ -41,9 +41,81 @@
   <main class="main">
     <section class="viewport" id="vp" aria-label="3D simulation view">
       <div class="vp-top">
+        <div class="vp-left">
         <div class="seg" role="group" aria-label="Colour mode">
           <button type="button" data-mode="progress" aria-pressed="true">Progress</button>
           <button type="button" data-mode="tool" aria-pressed="false">By tool</button>
+        </div>
+        <!-- Settings menus: each opens a panel over the top-left of the view (one at a time). -->
+        <details class="menu" id="menuStock">
+          <summary>Stock</summary>
+          <div class="pop">
+            <h3>Stock and resolution</h3>
+            <div class="grid2">
+              <label class="f">X min<input id="sxmin" type="number" step="0.1"></label>
+              <label class="f">X max<input id="sxmax" type="number" step="0.1"></label>
+              <label class="f">Y min<input id="symin" type="number" step="0.1"></label>
+              <label class="f">Y max<input id="symax" type="number" step="0.1"></label>
+              <label class="f">Z bottom<input id="szbot" type="number" step="0.1"></label>
+              <label class="f">Z top<input id="sztop" type="number" step="0.1"></label>
+            </div>
+            <div class="grid2" style="margin-top:10px">
+              <label class="f">Program units
+                <select id="unitSel"><option value="auto">Auto</option><option value="inch">Inches</option><option value="mm">Millimetres</option></select>
+              </label>
+              <label class="f">Grid resolution
+                <select id="resSel">
+                  <option value="200">Draft, 200 cells</option>
+                  <option value="280">Fast, 280 cells</option>
+                  <option value="360" selected>Balanced, 360 cells</option>
+                  <option value="520">Fine, 520 cells</option>
+                  <option value="800">Ultra, 800 cells</option>
+                </select>
+              </label>
+              <div style="display:flex;align-items:end"><button class="btn primary" id="applyStock" type="button">Apply stock</button></div>
+            </div>
+            <p class="note">Stock box in program coordinates, shown in mm. Size comes from the setup-sheet CSV when there is one; its position is a guess from the toolpath until the Fusion setup supplies it.</p>
+          </div>
+        </details>
+        <details class="menu" id="menuTools">
+          <summary>Tools</summary>
+          <div class="pop">
+            <h3>Tools and holders</h3>
+            <div id="toolCards"></div>
+            <button class="btn primary" id="applyTools" type="button">Apply tool changes</button>
+            <p class="note">Sizes come from the Fusion tool library (.tools) if you load one, then the setup-sheet CSV, then the tool name in the program.</p>
+          </div>
+        </details>
+        <details class="menu" id="menuDisplay">
+          <summary>Display</summary>
+          <div class="pop">
+            <h3>Display</h3>
+            <div class="grid2">
+              <label class="f">Toolpath lines
+                <select id="pathSel"><option value="op">Current operation</option><option value="all">Whole program</option><option value="off">Hidden</option></select>
+              </label>
+              <label class="f">Rapid moves
+                <select id="rapidSel"><option value="off">Hidden</option><option value="on">Shown</option></select>
+              </label>
+              <label class="f">Holder
+                <select id="holderSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
+              </label>
+              <label class="f">Workholding
+                <select id="fixSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
+              </label>
+              <label class="f">Original stock outline
+                <select id="ghostSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
+              </label>
+            </div>
+          </div>
+        </details>
+        <details class="menu" id="menuNotes">
+          <summary>Notes<span class="menu-dot" id="notesDot" hidden></span></summary>
+          <div class="pop">
+            <h3>Notes about this program</h3>
+            <div class="warns" id="warns"></div>
+          </div>
+        </details>
         </div>
         <div class="seg" role="group" aria-label="Camera">
           <button type="button" data-view="iso">Iso</button>
@@ -86,8 +158,8 @@
     </section>
 
     <aside class="side">
-      <!-- Pinned: the active tool, what it is doing and where to restart stay in view while the
-           rest of the panel scrolls underneath. -->
+      <!-- Fixed: the active tool, what it is doing, where to restart, spindle/feed/coolant and
+           position. Only the operations list below scrolls (John: one scrollbar, not two). -->
       <section class="now-pin" aria-live="off">
         <div class="now-head">
           <div class="tnum" id="tNo">T1</div>
@@ -100,8 +172,6 @@
         <div class="opnow" id="opNow"></div>
         <div class="opsub" id="opSub"></div>
         <div class="restart" id="restartBox" hidden><span>Restart seq #</span><b id="restartN"></b></div>
-      </section>
-      <section class="now">
         <div class="reads">
           <div class="read"><span>Spindle rpm</span><b id="rSpin">0</b></div>
           <div class="read"><span id="rFeedL">Feed mm/min</span><b id="rFeed">0</b></div>
@@ -114,69 +184,6 @@
         <h2>Operations</h2>
         <ol id="ops"></ol>
       </section>
-      <div class="warns" id="warns"></div>
-
-      <details>
-        <summary>Stock and resolution</summary>
-        <div class="pad">
-          <div class="grid2">
-            <label class="f">X min<input id="sxmin" type="number" step="0.1"></label>
-            <label class="f">X max<input id="sxmax" type="number" step="0.1"></label>
-            <label class="f">Y min<input id="symin" type="number" step="0.1"></label>
-            <label class="f">Y max<input id="symax" type="number" step="0.1"></label>
-            <label class="f">Z bottom<input id="szbot" type="number" step="0.1"></label>
-            <label class="f">Z top<input id="sztop" type="number" step="0.1"></label>
-          </div>
-          <div class="grid2" style="margin-top:10px">
-            <label class="f">Program units
-              <select id="unitSel"><option value="auto">Auto</option><option value="inch">Inches</option><option value="mm">Millimetres</option></select>
-            </label>
-            <label class="f">Grid resolution
-              <select id="resSel">
-                <option value="200">Draft, 200 cells</option>
-                <option value="280">Fast, 280 cells</option>
-                <option value="360" selected>Balanced, 360 cells</option>
-                <option value="520">Fine, 520 cells</option>
-                <option value="800">Ultra, 800 cells</option>
-              </select>
-            </label>
-            <div style="display:flex;align-items:end"><button class="btn primary" id="applyStock" type="button">Apply stock</button></div>
-          </div>
-          <p class="note">Stock box in program coordinates, shown in mm. Size comes from the setup-sheet CSV when there is one; its position is a guess from the toolpath until the Fusion setup supplies it.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Tools and holders</summary>
-        <div class="pad">
-          <div id="toolCards"></div>
-          <button class="btn primary" id="applyTools" type="button">Apply tool changes</button>
-          <p class="note">Sizes come from the Fusion tool library (.tools) if you load one, then the setup-sheet CSV, then the tool name in the program.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Display</summary>
-        <div class="pad">
-          <div class="grid2">
-            <label class="f">Toolpath lines
-              <select id="pathSel"><option value="op">Current operation</option><option value="all">Whole program</option><option value="off">Hidden</option></select>
-            </label>
-            <label class="f">Rapid moves
-              <select id="rapidSel"><option value="off">Hidden</option><option value="on">Shown</option></select>
-            </label>
-            <label class="f">Holder
-              <select id="holderSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
-            </label>
-            <label class="f">Workholding
-              <select id="fixSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
-            </label>
-            <label class="f">Original stock outline
-              <select id="ghostSel"><option value="on">Shown</option><option value="off">Hidden</option></select>
-            </label>
-          </div>
-        </div>
-      </details>
     </aside>
   </main>
 

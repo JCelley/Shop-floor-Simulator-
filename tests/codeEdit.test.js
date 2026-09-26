@@ -78,8 +78,11 @@ const settled = async () => { for (let i = 0; i < 200 && w.__floorsim.S.pendingS
   ok(P.ops.every(o => g100.some(g => g.n === o.seqN && g.tool === o.tool)), 'each op\'s restart N is the N on a G100 line for its own tool: ' + opN.join(','));
   const csvSeq = w.eval('NC').parseSetupCsv(csv).ops.map(o => Math.floor(parseFloat(o.seq)));
   ok(csvSeq.length === P.ops.length && csvSeq.every((s, k) => s === P.ops[k].seqN), 'and it matches the setup-sheet CSV Seq# for every op');
+  // the list shows the setup sheet's own Seq# (30, 30.1, 30.2...), not the tool change's N (John,
+  // 2026-09-26: "display the N number from the sequence detail"); Restart seq # keeps the G100 N
   const badges = [...d.querySelectorAll('#ops .opbadge.seq')].map(b => b.textContent);
-  ok(badges.length === P.ops.length && badges[0] === 'N' + P.ops[0].seqN, 'N badge next to every operation: ' + badges.slice(0, 5).join(' '));
+  const csvSeqStr = w.eval('NC').parseSetupCsv(csv).ops.map(o => 'N' + String(o.seq).trim());
+  ok(badges.length === P.ops.length && badges.every((b, k) => b === csvSeqStr[k]), 'each operation shows its setup-sheet Seq#: ' + badges.slice(0, 8).join(' '));
 
   // clicking an operation shows its restart number
   const k3 = P.ops.findIndex(o => o.seqN === g100[3].n);

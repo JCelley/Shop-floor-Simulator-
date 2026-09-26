@@ -77,10 +77,22 @@ button, select, input { font: inherit; color: inherit; }
 .viewport { position: relative; min-height: 0; overflow: hidden; background: radial-gradient(120% 100% at 50% 30%, var(--vp-a), var(--vp-b)); touch-action: none; }
 .viewport canvas { display: block; width: 100%; height: 100%; cursor: grab; }
 .viewport canvas:active { cursor: grabbing; }
-.side { overflow-y: auto; background: var(--panel); border-left: 1px solid var(--line); min-height: 0; }
+/* Right panel: everything fixed except the operations list, which is the only thing that scrolls. */
+.side { display: flex; flex-direction: column; overflow: hidden; background: var(--panel); border-left: 1px solid var(--line); min-height: 0; }
 
 /* ---------- viewport overlays ---------- */
-.vp-top { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; gap: 10px; pointer-events: none; flex-wrap: wrap; }
+.vp-top { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; gap: 10px; pointer-events: none; flex-wrap: wrap; z-index: 7; }
+.vp-left { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+/* Settings menus (Stock / Tools / Display / Notes): a button like the others, opening a panel below. */
+.menu > summary { list-style: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 13px; font-size: 15px; font-weight: 600; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); pointer-events: auto; user-select: none; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary::after { content: ""; width: 0; height: 0; border: 5px solid transparent; border-top-color: currentColor; margin-top: 5px; opacity: .6; }
+.menu[open] > summary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.menu-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--panel2); }
+.menu-dot[hidden] { display: none; }
+.menu .pop { position: absolute; left: 0; top: 46px; width: min(440px, 100%); max-height: calc(100vh - 240px); overflow-y: auto; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px 14px; box-shadow: var(--shadow); pointer-events: auto; }
+.menu .pop h3 { margin: 0 0 10px; font-size: 17px; }
+.menu .pop .warns { padding: 0; font-size: 14px; }
 .seg { display: inline-flex; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; pointer-events: auto; box-shadow: var(--shadow); }
 .seg button { min-height: 36px; padding: 0 13px; border: 0; background: transparent; font-weight: 600; cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--line); }
@@ -115,8 +127,7 @@ button, select, input { font: inherit; color: inherit; }
 /* ---------- side panel ---------- */
 .side section, .side details { border-bottom: 1px solid var(--line); }
 .side h2 { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: var(--muted); }
-.now-pin { position: sticky; top: 0; z-index: 3; background: var(--panel); padding: 14px 14px 10px; box-shadow: 0 6px 8px -8px rgba(0, 0, 0, .35); }
-.now { padding: 0 14px 14px; }
+.now-pin { flex: none; padding: 14px; }
 .now-head { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
 .tnum { font: 700 68px/.85 var(--font); letter-spacing: -.02em; min-width: 1.4ch; }
 .tname { font-size: 19px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
@@ -156,9 +167,9 @@ button, select, input { font: inherit; color: inherit; }
 .code-gutter div.cur { color: #fff; font-weight: 700; }
 .code-edit-row { display: flex; gap: 8px; margin-top: 6px; align-items: center; flex-wrap: wrap; pointer-events: auto; }
 .code-edit-note { font-size: 13px; font-weight: 600; color: var(--ov-ink); text-shadow: var(--ov-halo); }
-.opsec { padding: 10px 0 6px; }
+.opsec { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 0 0; border-bottom: 0 !important; }
 .opsec h2 { padding: 0 14px; }
-#ops { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
+#ops { list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0; overflow-y: auto; }
 #ops button { width: 100%; display: grid; grid-template-columns: 14px 3.2ch 1fr; gap: 10px; align-items: center; text-align: left; padding: 8px 14px; border: 0; border-left: 4px solid transparent; background: transparent; cursor: pointer; min-height: 42px; }
 #ops button:hover { background: var(--panel2); }
 #ops button[aria-current="true"] { background: var(--panel2); border-left-color: var(--accent); font-weight: 700; }
@@ -206,7 +217,9 @@ label.f select { font-family: var(--font); }
 
 @media (max-width: 980px) {
   .main { grid-template-columns: 1fr; grid-template-rows: minmax(0, 56%) minmax(0, 44%); }
-  .side { border-left: 0; border-top: 1px solid var(--line); }
+  /* too short to fix the top block: the panel scrolls as one instead (still a single scrollbar) */
+  .side { display: block; overflow-y: auto; border-left: 0; border-top: 1px solid var(--line); }
+  #ops { overflow: visible; }
   .transport { grid-template-columns: auto minmax(0, 1fr); }
   .time, .speed { grid-row: 2; }
   .fname { display: none; }
