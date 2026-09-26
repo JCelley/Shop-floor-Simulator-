@@ -21,46 +21,49 @@ const settled = async () => { for (let i = 0; i < 200 && w.__floorsim.S.pendingS
   const type = v => { ta.value = v; ta.dispatchEvent(new w.Event('input')); };
   const originalText = S.text, originalName = S.name, originalMoves = S.prog.n;
 
-  // ---- the box already holds the program; no Edit button exists any more
+  // ---- the box already holds the program; no Edit or Run button
   ok(ta.tagName === 'TEXTAREA' && ta.value === originalText.replace(/\r/g, ''), 'the G-code box is an editable textarea holding the whole program');
-  ok(!d.getElementById('codeEditBtn'), 'there is no separate Edit button');
-  ok(row.hidden && !S.codeDirty, 'Run/Undo buttons hidden until something is actually changed');
+  ok(!d.getElementById('codeEditBtn') && !d.getElementById('codeRun'), 'there is no Edit button and no Run button');
+  ok(row.hidden && !S.codeDirty, 'Undo hidden until something is actually changed');
+  ok(!!d.querySelector('#vp #codePane'), 'the G-code sits over the 3D view');
 
-  // ---- typing marks it edited and pauses playback; undo puts it back without re-simulating
+  // ---- typing updates the sim by itself after a short pause - no Run button (John: the reload
+  // lost his place). The camera stays where he put it.
   S.playing = true;
   const edited = originalText.replace('T1 M6', 'T1 M6\n(EDITED BY OPERATOR)');
+  w.__floorsim.orb.az = 1.234;
   type(edited);
-  ok(S.codeDirty && !row.hidden, 'typing shows Run/Undo');
-  ok(!S.playing, 'typing pauses playback');
-  d.getElementById('codeCancel').click();
-  ok(!S.codeDirty && row.hidden && ta.value === originalText.replace(/\r/g, ''), 'Undo edits restores the original text');
-  ok(S.text === originalText && S.name === originalName, 'undo does not touch the loaded program');
-  type(originalText + '');
-  ok(!S.codeDirty, 'text that matches the loaded program again is not "edited"');
-
-  // ---- editing and running re-simulates the new text
-  type(edited);
-  await F.runCodeEdit(); await ready();
-  ok(S.text === edited.replace(/\r/g, ''), 'the edited text is what actually got loaded');
+  ok(S.codeDirty && !S.playing, 'typing marks the box changed and pauses playback');
+  ok(S.text === originalText, 'nothing re-simulates on every keystroke');
+  await sleep(900); await ready();
+  ok(S.text === edited.replace(/\r/g, ''), 'a moment after typing stops, the edited text is what is simulated');
+  ok(!S.codeDirty && !row.hidden, 'the box counts as applied, and "Undo all edits" is offered');
   ok(S.name === originalName + ' (edited)', 'the name is marked as edited: ' + S.name);
-  ok(!S.codeDirty && row.hidden, 'a successful run clears the edited state');
+  ok(w.__floorsim.orb.az === 1.234, 'the camera was not reset by the live update');
 
+  // a second edit does not stack "(edited) (edited)"; typing again before the pause runs it once
+  type(S.text.replace('(EDITED BY OPERATOR)', '(EDITED A)'));
   type(S.text.replace('(EDITED BY OPERATOR)', '(EDITED AGAIN)'));
-  await F.runCodeEdit(); await ready();
-  ok(S.name === originalName + ' (edited)', 'no stacked "(edited) (edited)": ' + S.name);
+  await sleep(900); await ready();
+  ok(/\(EDITED AGAIN\)/.test(S.text) && S.name === originalName + ' (edited)', 'only the last text is applied, name not stacked: ' + S.name);
 
-  // ---- a broken edit is refused and stays in the box to fix
+  // ---- code with no moves at all is not applied; the last good version stays in the sim
   const before = S.text;
   type('(nothing but a comment, no moves at all)');
-  await F.runCodeEdit(); await sleep(300);
-  ok(S.text === before, 'a broken edit does not replace the working program');
-  ok(S.codeDirty && !row.hidden, 'the broken text stays in the box with Run/Undo still showing');
+  await sleep(900);
+  ok(S.text === before && S.codeDirty, 'text with no moves does not replace the working program, and stays in the box to fix');
 
-  // ---- loading something else throws away unsaved edits
+  // ---- "Undo all edits" goes back to the program as opened, and simulates it
+  d.getElementById('codeCancel').click(); await sleep(200); await ready();
+  ok(S.text === originalText.replace(/\r/g, '') && ta.value === S.text && !S.codeDirty && row.hidden, 'Undo all edits restores and re-runs the original program');
+  ok(S.name === originalName, 'and the name loses "(edited)": ' + S.name);
+
+  // ---- loading something else throws away edits
+  type(edited);
   const demoText = w.eval('NC').demoProgram();
-  await F.handleFiles([new w.File([demoText], 'O9999.NC')]); await ready();
+  await F.handleFiles([new w.File([demoText], 'O9999.NC')]); await ready(); await sleep(900);
   ok(!S.codeDirty && row.hidden && ta.value === demoText.replace(/\r/g, ''), 'loading a different file replaces the box and drops the edit');
-  ok(S.prog.n === originalMoves, 'the newly loaded program is the one shown: ' + S.prog.n + ' moves');
+  ok(S.prog.n === originalMoves && S.name === 'O9999.NC', 'the newly loaded program is the one shown: ' + S.name);
 
   // ================= real O1228: restart sequence numbers + line-by-line stepping =================
   const nc = fs.readFileSync(path.join(ROOT, 'fixtures', 'O1228.NC'), 'utf8');
@@ -120,12 +123,19 @@ const settled = async () => { for (let i = 0; i < 200 && w.__floorsim.S.pendingS
   const t0 = S.tau; d.getElementById('bPlay').click(); await sleep(300); d.getElementById('bPlay').click();
   ok(S.selLine === null && S.tau > t0, 'Play resumes from the stepped line and the panel follows the sim again');
 
-  // ---- once edited, the wheel is plain scrolling and does not step the sim
+  // ---- while typing (before the pause), the wheel is plain scrolling and does not step the sim
   const sel0 = S.selLine, tau0 = S.tau;
   type(ta.value + '\n(NOTE)');
   ta.dispatchEvent(new w.WheelEvent('wheel', { deltaY: 100, cancelable: true })); await sleep(200);
-  ok(S.selLine === sel0 && S.tau === tau0, 'while edited, scrolling the code does not move the sim');
-  d.getElementById('codeCancel').click();
+  ok(S.selLine === sel0 && S.tau === tau0, 'while typing, scrolling the code does not move the sim');
+
+  // ---- the live update lands on the line being edited
+  const L3 = g100[3].line + 2, st3 = [0]; for (let i = ta.value.indexOf('\n'); i >= 0; i = ta.value.indexOf('\n', i + 1)) st3.push(i + 1);
+  ta.setSelectionRange(st3[L3 - 1], st3[L3 - 1]);
+  type(ta.value); ta.setSelectionRange(st3[L3 - 1], st3[L3 - 1]);
+  await sleep(900); await ready(); await settled();
+  ok(S.hudLine === L3, `after the live update the sim sits on the edited line ${L3} (got ${S.hudLine})`);
+  d.getElementById('codeCancel').click(); await sleep(200); await ready();
 
   console.log('errors:', errors.length ? errors : 'none');
   ok(errors.length === 0, 'no runtime errors');

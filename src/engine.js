@@ -472,11 +472,19 @@ const NC = (() => {
       for (let i = 0; i < t.pos.length; i += 3) { t.pos[i] -= w.x; t.pos[i + 1] -= w.y; t.pos[i + 2] -= w.z; }
       return t;
     };
-    let stock = null, fixtures = [], partMesh = null;
-    if (meshes.stock && parsed.stockRef) { const t = place(meshes.stock, parsed.stockRef, 'STOCK'); const b = cimcoBBox(t); stock = { xmin: b.xmin, xmax: b.xmax, ymin: b.ymin, ymax: b.ymax, zmin: b.zmin, zmax: b.zmax }; }
+    let stock = null, fixtures = [], partMesh = null, stockMesh = null;
+    // A 2nd op's STOCK.stl is the shape the previous op left (O1247: 82,822 triangles), not a
+    // block - keep it so the sim can start from that shape. A plain box (every point a corner of
+    // its own outer box) needs no mesh.
+    if (meshes.stock && parsed.stockRef) {
+      const t = place(meshes.stock, parsed.stockRef, 'STOCK'), b = cimcoBBox(t);
+      stock = { xmin: b.xmin, xmax: b.xmax, ymin: b.ymin, ymax: b.ymax, zmin: b.zmin, zmax: b.zmax };
+      const e = 1e-3, on = (v, lo, hi) => Math.abs(v - lo) < e || Math.abs(v - hi) < e;
+      for (let i = 0; i < t.pos.length; i += 3) if (!on(t.pos[i], b.xmin, b.xmax) || !on(t.pos[i + 1], b.ymin, b.ymax) || !on(t.pos[i + 2], b.zmin, b.zmax)) { stockMesh = t; break; }
+    }
     if (meshes.fixture && parsed.fixtureRef) { const t = place(meshes.fixture, parsed.fixtureRef, 'FIXTURE'); fixtures.push({ name: 'FIXTURE', positions: Array.from(t.pos), indices: Array.from(t.idx) }); }
     if (meshes.part && parsed.partRef) partMesh = place(meshes.part, parsed.partRef, 'PART');
-    return { setup: { format: 'floorsim-setup', version: 1, units: 'mm', setup: programName, stock, fixtures }, warnings, partMesh };
+    return { setup: { format: 'floorsim-setup', version: 1, units: 'mm', setup: programName, stock, fixtures }, warnings, partMesh, stockMesh };
   }
 
   /* ---------- tilted work planes (G68.2 / G53.1 / G69) ----------
@@ -1622,7 +1630,9 @@ const NC = (() => {
   // (zTop, i.e. "no prior data here, assume solid") - the natural, safe fallback.
   // Returns the fraction of the box actually covered, so a caller can warn if that's suspiciously
   // low (a sign the WCS transform put the two setups in the wrong place relative to each other).
-  function seedHeightSim(sim, pos, idx) {
+  // emptyOutside: columns the mesh never covers hold no material (a stock shape's own footprint),
+  // instead of keeping what the sim held before (a previous setup's result laid over a box).
+  function seedHeightSim(sim, pos, idx, emptyOutside) {
     const nx = sim.nx, ny = sim.ny, dx = sim.dx, dy = sim.dy, x0 = sim.x0, y0 = sim.y0;
     const touched = new Uint8Array(nx * ny);
     const nt = idx.length / 3;
@@ -1652,7 +1662,7 @@ const NC = (() => {
       }
     }
     let n = 0;
-    for (let k = 0; k < sim.h.length; k++) if (touched[k]) { n++; sim.h[k] = Math.min(sim.zTop, Math.max(sim.zBot, sim.h[k])); }
+    for (let k = 0; k < sim.h.length; k++) if (touched[k]) { n++; sim.h[k] = Math.min(sim.zTop, Math.max(sim.zBot, sim.h[k])); } else if (emptyOutside) sim.h[k] = sim.zBot;
     sim.markAll();
     return n / touched.length;
   }

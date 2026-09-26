@@ -124,5 +124,26 @@ const fixtureBuf = fs.readFileSync(path.join(DIR, 'O1224_FIXTURE.stl'));
   ok(t52.type === 'chamfer' && near(t52.tip, 90, 0.01), `T52 chamfer angle resolves to ~90deg from the post's radian field, got ${t52.tip}`);
 }
 
+// ---- a 2nd op's STOCK.stl is the shape the previous op left, not a block (real O1247: 82,822
+// triangles). Made-up stand-in here (the real file is customer data): a 10x10 footprint whose left
+// half is 10 mm tall and right half was cut down to 5 mm, with a flat bottom at 0.
+{
+  const q = (x0, y0, x1, y1, z) => [[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y0, z], [x1, y1, z], [x0, y1, z]];
+  const tris = [...q(0, 0, 5, 10, 10), ...q(5, 0, 10, 10, 5), ...q(0, 0, 10, 10, 0)];
+  const stepped = { pos: Float32Array.from(tris.flat()), idx: Uint32Array.from(tris.map((_, i) => i)) };
+  const p2 = NC.parseCimcoSetup('WCS ID1 X0 Y0 Z0 A0 B0 C0\nSTOCK STL PATH="X_STOCK.stl" X0 Y0 Z0 A0 B0 C0 UM\n');
+  const r2 = NC.cimcoToFloorsimSetup(p2, { stock: stepped }, 'X');
+  ok(!!r2.stockMesh && r2.stockMesh.idx.length / 3 === 6, 'a stock mesh that is more than a plain box is kept as stockMesh');
+  ok(r2.setup.stock.zmax === 10 && r2.setup.stock.zmin === 0, 'its outer box is still the stock box');
+  const box12 = NC.cimcoToFloorsimSetup(NC.parseCimcoSetup(setupText), { stock: NC.parseStlBinary(stockBuf) }, 'O1224');
+  ok(box12.stockMesh === null, 'a plain 12-triangle block (O1224, a first op) gives no stockMesh - the box is enough');
+  // seed a grid 2 mm wider than the stock on +X: the step shows, and where the mesh never reaches is empty
+  const sim = new NC.HeightSim({ xmin: 0, xmax: 12, ymin: 0, ymax: 10, zbot: 0, ztop: 10 }, 120);
+  NC.seedHeightSim(sim, r2.stockMesh.pos, r2.stockMesh.idx, true);
+  const at = (x, y) => sim.h[Math.floor((y - sim.y0) / sim.dy) * sim.nx + Math.floor((x - sim.x0) / sim.dx)];
+  ok(Math.abs(at(2, 5) - 10) < 1e-6 && Math.abs(at(8, 5) - 5) < 1e-6, `the sim starts from the stepped shape: ${at(2, 5)} mm left, ${at(8, 5)} mm right`);
+  ok(at(11, 5) === sim.zBot, 'outside the stock shape there is no material');
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

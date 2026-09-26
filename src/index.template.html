@@ -51,9 +51,29 @@
           <button type="button" data-view="front">Front</button>
           <button type="button" data-view="fit">Fit</button>
           <button type="button" id="projBtn" aria-pressed="false" title="Orthographic view: no perspective, parallel lines stay parallel">Ortho</button>
+          <button type="button" id="codeToggle" aria-pressed="true" title="Show or hide the G-code over the view">Code</button>
         </div>
       </div>
       <div class="legend" id="legend"></div>
+      <section class="code" id="codePane" aria-label="G-code">
+        <div class="code-head">
+          <h2>G-code</h2>
+          <div class="code-step">
+            <button class="btn icon sm" id="lineUp" type="button" aria-label="Step back one line" title="Step back one line"><svg viewBox="0 0 24 24"><path d="M12 6l8 10H4z"/></svg></button>
+            <button class="btn icon sm" id="lineDn" type="button" aria-label="Step forward one line" title="Step forward one line"><svg viewBox="0 0 24 24"><path d="M12 18L4 8h16z"/></svg></button>
+          </div>
+          <span class="live-busy" id="liveBusy" hidden>Updating…</span>
+        </div>
+        <div class="codewrap" id="codeWrap">
+          <div class="code-hl" id="codeHl" hidden></div>
+          <textarea id="code" spellcheck="false" wrap="off" aria-label="G-code: click a line to jump to it, scroll or use the arrow keys to step line by line, type to edit - the sim updates as you type"></textarea>
+          <div class="code-gutter" id="codeGutter" aria-hidden="true"></div>
+        </div>
+        <div class="code-edit-row" id="codeEditRow" hidden>
+          <button class="btn" id="codeCancel" type="button">Undo all edits</button>
+          <span class="code-edit-note">Edited - not saved.</span>
+        </div>
+      </section>
       <div class="chips" id="chips"></div>
       <div class="probe" id="probe" hidden></div>
       <div class="busy" id="busy" hidden>
@@ -66,7 +86,9 @@
     </section>
 
     <aside class="side">
-      <section class="now" aria-live="off">
+      <!-- Pinned: the active tool, what it is doing and where to restart stay in view while the
+           rest of the panel scrolls underneath. -->
+      <section class="now-pin" aria-live="off">
         <div class="now-head">
           <div class="tnum" id="tNo">T1</div>
           <div>
@@ -75,35 +97,17 @@
           </div>
           <svg class="tsvg" id="tSvg" viewBox="0 0 58 106" aria-hidden="true"></svg>
         </div>
+        <div class="opnow" id="opNow"></div>
+        <div class="opsub" id="opSub"></div>
+        <div class="restart" id="restartBox" hidden><span>Restart seq #</span><b id="restartN"></b></div>
+      </section>
+      <section class="now">
         <div class="reads">
           <div class="read"><span>Spindle rpm</span><b id="rSpin">0</b></div>
           <div class="read"><span id="rFeedL">Feed mm/min</span><b id="rFeed">0</b></div>
           <div class="read"><span>Coolant</span><b id="rCool">Off</b></div>
         </div>
-        <div class="opnow" id="opNow"></div>
-        <div class="opsub" id="opSub"></div>
-        <div class="restart" id="restartBox" hidden><span>Restart seq #</span><b id="restartN"></b></div>
         <div class="xyz"><div><span>X</span><b id="pX">0.000</b></div><div><span>Y</span><b id="pY">0.000</b></div><div><span>Z</span><b id="pZ">0.000</b></div></div>
-      </section>
-
-      <section class="code">
-        <div class="code-head">
-          <h2>G-code</h2>
-          <div class="code-step">
-            <button class="btn icon sm" id="lineUp" type="button" aria-label="Step back one line" title="Step back one line"><svg viewBox="0 0 24 24"><path d="M12 6l8 10H4z"/></svg></button>
-            <button class="btn icon sm" id="lineDn" type="button" aria-label="Step forward one line" title="Step forward one line"><svg viewBox="0 0 24 24"><path d="M12 18L4 8h16z"/></svg></button>
-          </div>
-        </div>
-        <div class="codewrap" id="codeWrap">
-          <div class="code-hl" id="codeHl" hidden></div>
-          <textarea id="code" spellcheck="false" wrap="off" aria-label="G-code: click a line to jump to it, scroll or use the arrow keys to step line by line, type to edit"></textarea>
-          <div class="code-gutter" id="codeGutter" aria-hidden="true"></div>
-        </div>
-        <div class="code-edit-row" id="codeEditRow" hidden>
-          <button class="btn primary" id="codeRun" type="button">Run edited code</button>
-          <button class="btn" id="codeCancel" type="button">Undo edits</button>
-          <span class="code-edit-note">Not saved - back to the original next time you open this program.</span>
-        </div>
       </section>
 
       <section class="opsec">

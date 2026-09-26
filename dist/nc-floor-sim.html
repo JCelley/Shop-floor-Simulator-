@@ -95,7 +95,7 @@ button, select, input { font: inherit; color: inherit; }
 .seg button { min-height: 36px; padding: 0 13px; border: 0; background: transparent; font-weight: 600; cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
-.legend { position: absolute; left: 10px; top: 58px; display: flex; flex-direction: column; gap: 5px; font-size: 14px; background: color-mix(in srgb, var(--panel2) 88%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; max-width: 250px; }
+.legend { position: absolute; right: 10px; top: 58px; display: flex; flex-direction: column; gap: 5px; font-size: 14px; background: color-mix(in srgb, var(--panel2) 88%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; max-width: 250px; }
 .legend div { display: flex; align-items: center; gap: 8px; }
 .sw { width: 14px; height: 14px; border-radius: 3px; flex: none; border: 1px solid rgba(0, 0, 0, .25); }
 .chips { position: absolute; left: 10px; bottom: 10px; right: 10px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
@@ -125,7 +125,8 @@ button, select, input { font: inherit; color: inherit; }
 /* ---------- side panel ---------- */
 .side section, .side details { border-bottom: 1px solid var(--line); }
 .side h2 { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: var(--muted); }
-.now { padding: 14px; }
+.now-pin { position: sticky; top: 0; z-index: 3; background: var(--panel); padding: 14px 14px 10px; box-shadow: 0 6px 8px -8px rgba(0, 0, 0, .35); }
+.now { padding: 0 14px 14px; }
 .now-head { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
 .tnum { font: 700 68px/.85 var(--font); letter-spacing: -.02em; min-width: 1.4ch; }
 .tname { font-size: 19px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
@@ -142,24 +143,29 @@ button, select, input { font: inherit; color: inherit; }
 .restart b { font: 700 20px/1.1 var(--mono); }
 .xyz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; font: 600 17px var(--mono); }
 .xyz span { color: var(--muted); font-weight: 500; margin-right: 4px; }
-.code { padding: 10px 14px 12px; }
-.code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.code-head h2 { margin: 0; }
+/* G-code over the left of the 3D view with no panel behind it, so the sim stays visible. Text is
+   white with a dark outline so it reads over any stock/fixture colour in either theme. */
+.code { position: absolute; left: 10px; top: 58px; bottom: 52px; width: min(380px, 44%); z-index: 2; display: flex; flex-direction: column; pointer-events: none; --ov-ink: #fff; --ov-halo: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
+.code[hidden] { display: none; }
+.code-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; pointer-events: auto; }
+.code-head h2 { margin: 0; color: var(--ov-ink); text-shadow: var(--ov-halo); font-size: 16px; font-weight: 700; }
 .code-step { display: flex; gap: 6px; }
 .btn.icon.sm { width: 40px; min-height: 36px; }
-/* One real textarea holds the whole program (click to edit, no Edit button). The current-line
+.live-busy { font: 600 13px/1 var(--mono); padding: 5px 8px; border-radius: 4px; background: var(--accent); color: var(--accent-ink); }
+.live-busy[hidden] { display: none; }
+/* One real textarea holds the whole program (type to edit, no Edit button). The current-line
    band and the line numbers are drawn underneath / beside it and kept in step by app.js, which
    is why the line height is fixed in px here and mirrored as CODE_LH there. */
-.codewrap { position: relative; height: 262px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
-.codewrap.dirty { border-color: var(--accent); }
-#code { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border: 0; resize: none; outline: none; background: transparent; color: var(--ink); font: 500 13.5px/20px var(--mono); padding: 6px 8px 6px calc(5ch + 16px); white-space: pre; overflow: auto; z-index: 1; tab-size: 4; }
+.codewrap { position: relative; flex: 1; min-height: 120px; background: transparent; border-left: 2px solid transparent; overflow: hidden; pointer-events: auto; }
+.codewrap.dirty { border-left-color: var(--accent); }
+#code { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border: 0; resize: none; outline: none; background: transparent; color: var(--ov-ink); text-shadow: var(--ov-halo); caret-color: var(--accent); font: 600 13.5px/20px var(--mono); padding: 6px 8px 6px calc(5ch + 16px); white-space: pre; overflow: auto; z-index: 1; tab-size: 4; scrollbar-color: rgba(255, 255, 255, .45) transparent; }
 #code:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
-.code-hl { position: absolute; left: 0; right: 0; height: 20px; background: var(--code-cur); z-index: 0; pointer-events: none; }
-.code-gutter { position: absolute; left: 0; top: 0; bottom: 0; width: calc(5ch + 8px); font: 500 13.5px/20px var(--mono); color: var(--muted); text-align: right; padding-right: 6px; pointer-events: none; z-index: 2; overflow: hidden; background: var(--panel2); border-right: 1px solid var(--line); }
+.code-hl { position: absolute; left: 0; right: 0; height: 20px; background: rgba(242, 183, 5, .38); z-index: 0; pointer-events: none; }
+.code-gutter { position: absolute; left: 0; top: 0; bottom: 0; width: calc(5ch + 8px); font: 500 13.5px/20px var(--mono); color: #d5dbe2; text-shadow: var(--ov-halo); text-align: right; padding-right: 6px; pointer-events: none; z-index: 2; overflow: hidden; border-right: 1px solid rgba(255, 255, 255, .25); }
 .code-gutter div { height: 20px; }
-.code-gutter div.cur { color: var(--ink); font-weight: 700; }
-.code-edit-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
-.code-edit-note { font-size: 12px; color: var(--muted); }
+.code-gutter div.cur { color: #fff; font-weight: 700; }
+.code-edit-row { display: flex; gap: 8px; margin-top: 6px; align-items: center; flex-wrap: wrap; pointer-events: auto; }
+.code-edit-note { font-size: 13px; font-weight: 600; color: var(--ov-ink); text-shadow: var(--ov-halo); }
 .opsec { padding: 10px 0 6px; }
 .opsec h2 { padding: 0 14px; }
 #ops { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
@@ -259,9 +265,29 @@ label.f select { font-family: var(--font); }
           <button type="button" data-view="front">Front</button>
           <button type="button" data-view="fit">Fit</button>
           <button type="button" id="projBtn" aria-pressed="false" title="Orthographic view: no perspective, parallel lines stay parallel">Ortho</button>
+          <button type="button" id="codeToggle" aria-pressed="true" title="Show or hide the G-code over the view">Code</button>
         </div>
       </div>
       <div class="legend" id="legend"></div>
+      <section class="code" id="codePane" aria-label="G-code">
+        <div class="code-head">
+          <h2>G-code</h2>
+          <div class="code-step">
+            <button class="btn icon sm" id="lineUp" type="button" aria-label="Step back one line" title="Step back one line"><svg viewBox="0 0 24 24"><path d="M12 6l8 10H4z"/></svg></button>
+            <button class="btn icon sm" id="lineDn" type="button" aria-label="Step forward one line" title="Step forward one line"><svg viewBox="0 0 24 24"><path d="M12 18L4 8h16z"/></svg></button>
+          </div>
+          <span class="live-busy" id="liveBusy" hidden>Updating…</span>
+        </div>
+        <div class="codewrap" id="codeWrap">
+          <div class="code-hl" id="codeHl" hidden></div>
+          <textarea id="code" spellcheck="false" wrap="off" aria-label="G-code: click a line to jump to it, scroll or use the arrow keys to step line by line, type to edit - the sim updates as you type"></textarea>
+          <div class="code-gutter" id="codeGutter" aria-hidden="true"></div>
+        </div>
+        <div class="code-edit-row" id="codeEditRow" hidden>
+          <button class="btn" id="codeCancel" type="button">Undo all edits</button>
+          <span class="code-edit-note">Edited - not saved.</span>
+        </div>
+      </section>
       <div class="chips" id="chips"></div>
       <div class="probe" id="probe" hidden></div>
       <div class="busy" id="busy" hidden>
@@ -274,7 +300,9 @@ label.f select { font-family: var(--font); }
     </section>
 
     <aside class="side">
-      <section class="now" aria-live="off">
+      <!-- Pinned: the active tool, what it is doing and where to restart stay in view while the
+           rest of the panel scrolls underneath. -->
+      <section class="now-pin" aria-live="off">
         <div class="now-head">
           <div class="tnum" id="tNo">T1</div>
           <div>
@@ -283,35 +311,17 @@ label.f select { font-family: var(--font); }
           </div>
           <svg class="tsvg" id="tSvg" viewBox="0 0 58 106" aria-hidden="true"></svg>
         </div>
+        <div class="opnow" id="opNow"></div>
+        <div class="opsub" id="opSub"></div>
+        <div class="restart" id="restartBox" hidden><span>Restart seq #</span><b id="restartN"></b></div>
+      </section>
+      <section class="now">
         <div class="reads">
           <div class="read"><span>Spindle rpm</span><b id="rSpin">0</b></div>
           <div class="read"><span id="rFeedL">Feed mm/min</span><b id="rFeed">0</b></div>
           <div class="read"><span>Coolant</span><b id="rCool">Off</b></div>
         </div>
-        <div class="opnow" id="opNow"></div>
-        <div class="opsub" id="opSub"></div>
-        <div class="restart" id="restartBox" hidden><span>Restart seq #</span><b id="restartN"></b></div>
         <div class="xyz"><div><span>X</span><b id="pX">0.000</b></div><div><span>Y</span><b id="pY">0.000</b></div><div><span>Z</span><b id="pZ">0.000</b></div></div>
-      </section>
-
-      <section class="code">
-        <div class="code-head">
-          <h2>G-code</h2>
-          <div class="code-step">
-            <button class="btn icon sm" id="lineUp" type="button" aria-label="Step back one line" title="Step back one line"><svg viewBox="0 0 24 24"><path d="M12 6l8 10H4z"/></svg></button>
-            <button class="btn icon sm" id="lineDn" type="button" aria-label="Step forward one line" title="Step forward one line"><svg viewBox="0 0 24 24"><path d="M12 18L4 8h16z"/></svg></button>
-          </div>
-        </div>
-        <div class="codewrap" id="codeWrap">
-          <div class="code-hl" id="codeHl" hidden></div>
-          <textarea id="code" spellcheck="false" wrap="off" aria-label="G-code: click a line to jump to it, scroll or use the arrow keys to step line by line, type to edit"></textarea>
-          <div class="code-gutter" id="codeGutter" aria-hidden="true"></div>
-        </div>
-        <div class="code-edit-row" id="codeEditRow" hidden>
-          <button class="btn primary" id="codeRun" type="button">Run edited code</button>
-          <button class="btn" id="codeCancel" type="button">Undo edits</button>
-          <span class="code-edit-note">Not saved - back to the original next time you open this program.</span>
-        </div>
       </section>
 
       <section class="opsec">
@@ -894,11 +904,19 @@ const NC = (() => {
       for (let i = 0; i < t.pos.length; i += 3) { t.pos[i] -= w.x; t.pos[i + 1] -= w.y; t.pos[i + 2] -= w.z; }
       return t;
     };
-    let stock = null, fixtures = [], partMesh = null;
-    if (meshes.stock && parsed.stockRef) { const t = place(meshes.stock, parsed.stockRef, 'STOCK'); const b = cimcoBBox(t); stock = { xmin: b.xmin, xmax: b.xmax, ymin: b.ymin, ymax: b.ymax, zmin: b.zmin, zmax: b.zmax }; }
+    let stock = null, fixtures = [], partMesh = null, stockMesh = null;
+    // A 2nd op's STOCK.stl is the shape the previous op left (O1247: 82,822 triangles), not a
+    // block - keep it so the sim can start from that shape. A plain box (every point a corner of
+    // its own outer box) needs no mesh.
+    if (meshes.stock && parsed.stockRef) {
+      const t = place(meshes.stock, parsed.stockRef, 'STOCK'), b = cimcoBBox(t);
+      stock = { xmin: b.xmin, xmax: b.xmax, ymin: b.ymin, ymax: b.ymax, zmin: b.zmin, zmax: b.zmax };
+      const e = 1e-3, on = (v, lo, hi) => Math.abs(v - lo) < e || Math.abs(v - hi) < e;
+      for (let i = 0; i < t.pos.length; i += 3) if (!on(t.pos[i], b.xmin, b.xmax) || !on(t.pos[i + 1], b.ymin, b.ymax) || !on(t.pos[i + 2], b.zmin, b.zmax)) { stockMesh = t; break; }
+    }
     if (meshes.fixture && parsed.fixtureRef) { const t = place(meshes.fixture, parsed.fixtureRef, 'FIXTURE'); fixtures.push({ name: 'FIXTURE', positions: Array.from(t.pos), indices: Array.from(t.idx) }); }
     if (meshes.part && parsed.partRef) partMesh = place(meshes.part, parsed.partRef, 'PART');
-    return { setup: { format: 'floorsim-setup', version: 1, units: 'mm', setup: programName, stock, fixtures }, warnings, partMesh };
+    return { setup: { format: 'floorsim-setup', version: 1, units: 'mm', setup: programName, stock, fixtures }, warnings, partMesh, stockMesh };
   }
 
   /* ---------- tilted work planes (G68.2 / G53.1 / G69) ----------
@@ -2044,7 +2062,9 @@ const NC = (() => {
   // (zTop, i.e. "no prior data here, assume solid") - the natural, safe fallback.
   // Returns the fraction of the box actually covered, so a caller can warn if that's suspiciously
   // low (a sign the WCS transform put the two setups in the wrong place relative to each other).
-  function seedHeightSim(sim, pos, idx) {
+  // emptyOutside: columns the mesh never covers hold no material (a stock shape's own footprint),
+  // instead of keeping what the sim held before (a previous setup's result laid over a box).
+  function seedHeightSim(sim, pos, idx, emptyOutside) {
     const nx = sim.nx, ny = sim.ny, dx = sim.dx, dy = sim.dy, x0 = sim.x0, y0 = sim.y0;
     const touched = new Uint8Array(nx * ny);
     const nt = idx.length / 3;
@@ -2074,7 +2094,7 @@ const NC = (() => {
       }
     }
     let n = 0;
-    for (let k = 0; k < sim.h.length; k++) if (touched[k]) { n++; sim.h[k] = Math.min(sim.zTop, Math.max(sim.zBot, sim.h[k])); }
+    for (let k = 0; k < sim.h.length; k++) if (touched[k]) { n++; sim.h[k] = Math.min(sim.zTop, Math.max(sim.zBot, sim.h[k])); } else if (emptyOutside) sim.h[k] = sim.zBot;
     sim.markAll();
     return n / touched.length;
   }
@@ -2732,8 +2752,11 @@ function toast(msg, ms = 5000) {
   const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t);
   toast._t = setTimeout(() => { t.hidden = true; }, ms);
 }
-function showBusy(txt, frac) { $('busy').hidden = false; setText($('busyTxt'), txt); $('busyBar').style.width = Math.round(clamp(frac, 0, 1) * 100) + '%'; }
-function hideBusy() { $('busy').hidden = true; }
+function showBusy(txt, frac) {
+  if (S.quietBusy) { $('liveBusy').hidden = false; return; }
+  $('busy').hidden = false; setText($('busyTxt'), txt); $('busyBar').style.width = Math.round(clamp(frac, 0, 1) * 100) + '%';
+}
+function hideBusy() { $('busy').hidden = true; $('liveBusy').hidden = true; }
 const readFile = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(r.error); r.readAsText(f); });
 
 function autoStock() {
@@ -2763,7 +2786,7 @@ async function loadText(text, name, opts = {}) {
   try {
     const un = $('unitSel').value;
     const P = NC.parseProgram(text, { units: un === 'auto' ? undefined : un });
-    if (!P.n) { toast('No tool motion found in that file. Is it a G-code program?'); return; }
+    if (!P.n) { toast(opts.live ? 'The edited code has no tool moves, so the sim still shows the last version that did.' : 'No tool motion found in that file. Is it a G-code program?'); return; }
     const csv = opts.csv || null, lib = opts.lib || null, setup = opts.setup || null, info = [];
     if (csv) { const n = NC.applyCsvTools(P.tools, csv); info.push(`Setup sheet: ${n} tool${n === 1 ? '' : 's'} sized from it.`); }
     if (opts.tools) for (const o of opts.tools) { const t = P.tools.find(x => x.no === o.no); if (t) { Object.assign(t, o); t.defaulted = false; NC.completeTool(t); } }
@@ -2793,12 +2816,18 @@ async function loadText(text, name, opts = {}) {
     // The real finished-part mesh from the .setup file, when one was loaded - parsed and
     // kept here for a future true deviation-colouring feature, not rendered by anything yet.
     S.partMesh = opts.partMesh || null;
-    setCodeText(text);
+    // The .setup's STOCK.stl when it is a real shape (a 2nd op's leftover stock), not just a box.
+    S.stockMesh = opts.stockMesh || null;
+    if (!opts.live) S.origText = String(text).replace(/\r/g, '');   // what "Undo all edits" goes back to
+    setCodeText(text, opts.live);
     S.prog = P; S.name = name; S.tools = P.tools; S.toolsDirty = false;
     setText($('fname'), name + (opts.exported ? '   exported ' + opts.exported.slice(0, 16).replace('T', ' ') : ''));
-    if (opts.stock) S.stock = Object.assign({}, opts.stock); else if (setup && setup.stock) S.stock = stockFromSetup(setup.stock); else autoStock();
+    // A live edit keeps the stock box it already had - re-guessing it from the edited moves would
+    // make the block jump around while typing.
+    if (opts.live && S.stock) { /* keep */ } else if (opts.stock) S.stock = Object.assign({}, opts.stock); else if (setup && setup.stock) S.stock = stockFromSetup(setup.stock); else autoStock();
     fillStockInputs(); buildToolCards(); buildOps(); buildTicks(); buildPaths();
     if (setup) info.push(`Setup file "${setup.setup || 'setup'}": ${setup.stock ? 'stock box from Fusion' : 'no stock box, using a guess'}, ${(setup.fixtures || []).length} workholding part${(setup.fixtures || []).length === 1 ? '' : 's'}.`);
+    if (S.stockMesh && !chainSeed) info.push('Starting stock: the shape in the setup file (what the previous op left), seen from above.');
     if (opts.exported) info.push('Job file exported ' + opts.exported.replace('T', ' ') + (opts.document ? ' from "' + opts.document + '"' : '') + '.');
     if (setup && setup.stockMode === 7) {
       if (chainSeed) info.push(`Stock seeded from the previous setup's finished result ("${chainSeed.fromName}").`);
@@ -2814,7 +2843,9 @@ async function loadText(text, name, opts = {}) {
     if (opts.cimcoWarn && opts.cimcoWarn.length) extraWarn.push(...opts.cimcoWarn);
     const lines = info.concat(P.notes), warnList = P.warnings.concat(extraWarn, checkSetup(P, S.stock, setup, !!chainSeed));
     $('warns').innerHTML = lines.map(esc).join('<br>') + (warnList.length ? (lines.length ? '<br>' : '') + '<b>Heads up</b><br>' + warnList.map(esc).join('<br>') : '');
-    await rebuild(true);
+    S.quietBusy = !!opts.live;   // a live edit shows a small "updating" tag, not the full-screen cover
+    try { await rebuild(!opts.live); } finally { S.quietBusy = false; }
+    if (S.stockMesh && !chainSeed && S.triDexel) $('warns').innerHTML += (warnList.length ? '<br>' : '<br><b>Heads up</b><br>') + esc('This program uses tilted planes or an undercut tool, so the starting stock is drawn as a plain block, not the shape in the setup file.');
     if (chainSeed && S.chainCoverage != null && S.chainCoverage < 0.05) {
       $('warns').innerHTML += (warnList.length || lines.length ? '<br>' : '<b>Heads up</b><br>') +
         `The chained stock from "${chainSeed.fromName}" barely overlaps this setup's stock box (${Math.round(S.chainCoverage * 100)}% covered) - the two setups' WCS placements may not line up, or this pairing may be wrong.`;
@@ -2843,7 +2874,7 @@ async function handleFiles(files) {
       }
     } catch (err) { console.error(err); toast('Could not open ' + f.name + ': ' + err.message); }
   }
-  let cimcoTools = null, partMesh = null, cimcoWarn = [];
+  let cimcoTools = null, partMesh = null, stockMesh = null, cimcoWarn = [];
   if (b.cimcoSetupText) {
     try {
       const parsed = NC.parseCimcoSetup(b.cimcoSetupText);
@@ -2855,13 +2886,13 @@ async function handleFiles(files) {
       const result = NC.cimcoToFloorsimSetup(parsed, meshes, programName);
       if (!b.setup) b.setup = result.setup;   // a JSON floorsim-setup file, if also present, wins - simple, documented default
       cimcoTools = parsed.tools.length ? parsed : null;
-      partMesh = result.partMesh;
+      partMesh = result.partMesh; stockMesh = result.stockMesh;
       cimcoWarn = result.warnings;
     } catch (err) { console.error(err); toast('Could not read the .setup/STL files: ' + err.message); }
   }
-  const cimcoOpts = { cimcoTools, partMesh, cimcoWarn };
+  const cimcoOpts = { cimcoTools, partMesh, stockMesh, cimcoWarn };
   // Adding just a CSV/tool library to the program already on screen keeps its setup-file data.
-  const keptOpts = cimcoTools ? cimcoOpts : { cimcoTools: S.cimcoTools, partMesh: S.partMesh, cimcoWarn: S.cimcoWarn };
+  const keptOpts = cimcoTools ? cimcoOpts : { cimcoTools: S.cimcoTools, partMesh: S.partMesh, stockMesh: S.stockMesh, cimcoWarn: S.cimcoWarn };
   if (b.job) return loadText(b.job.gcode, b.job.program || 'Job', Object.assign({ setup: b.job, lib: b.job.toolLibrary, ops: b.job.ops, exported: b.job.exported, document: b.job.document }, cimcoOpts));
   if (b.bundle) return loadText(b.bundle.gcode, b.bundle.name || 'Job bundle', Object.assign({ stock: b.bundle.stock, tools: b.bundle.tools, csv: b.csv, lib: b.lib, setup: b.setup }, cimcoOpts));
   if (b.text) return loadText(b.text, b.name, Object.assign({ csv: b.csv, lib: b.lib, setup: b.setup }, cimcoOpts));
@@ -3069,6 +3100,9 @@ async function prepass(token, sims, td) {
   if (S.chainSeed && sims.has(0)) {
     const tpos = NC.transformPoints(S.chainSeed.mesh.pos, S.chainSeed.fromWcs, S.chainSeed.toWcs);
     S.chainCoverage = NC.seedHeightSim(sims.get(0), tpos, S.chainSeed.mesh.idx);
+  } else if (S.stockMesh && sims.has(0) && !td) {
+    // Start from the setup file's own stock shape (seen from above - see seedHeightSim).
+    NC.seedHeightSim(sims.get(0), S.stockMesh.pos, S.stockMesh.idx, true);
   }
   // Tri-dexel's grids count toward the same fixed snapshot memory budget - on the real O1224 job
   // they are the bulk of it (5 signed grids, ~3MB per snapshot all told), so leaving them out
@@ -3347,13 +3381,17 @@ function dispCur() {
 const CODE_LH = 20, CODE_PADT = 6;
 const codeTa = $('code');
 let codeStarts = new Int32Array([0]), codeNorm = '', codeAutoTop = -1, codeLastTop = 0, codeWheelAcc = 0;
-function setCodeText(text) {
+// live: the text came from the box itself, so leave the box alone (caret, scroll, and anything
+// typed since) - just line the numbers up with the version now simulated.
+function setCodeText(text, live) {
   codeNorm = String(text).replace(/\r/g, '');   // same line split as the parser, so line numbers agree
-  codeTa.value = codeNorm;
+  if (!live) codeTa.value = codeNorm;
   const st = [0]; for (let k = codeNorm.indexOf('\n'); k >= 0; k = codeNorm.indexOf('\n', k + 1)) st.push(k + 1);
   codeStarts = Int32Array.from(st);
-  S.selLine = null; S.selMove = -1; S.hudLine = -1; S.codeFree = false;
-  setCodeDirty(false);
+  // codeFree while live: the re-run starts at move 0, and following it would scroll the box away
+  // from the line being edited.
+  S.selLine = null; S.selMove = -1; S.hudLine = -1; S.codeFree = !!live;
+  setCodeDirty(codeTa.value !== codeNorm);
 }
 function codeLineOf(pos) {
   let lo = 0, hi = codeStarts.length - 1;
@@ -3361,8 +3399,8 @@ function codeLineOf(pos) {
   return lo + 1;
 }
 function setCodeDirty(d) {
-  S.codeDirty = d; $('codeEditRow').hidden = !d; $('codeWrap').classList.toggle('dirty', d);
-  paintCode();
+  S.codeDirty = d; $('codeWrap').classList.toggle('dirty', d);
+  updateEditRow(); paintCode();
 }
 function paintCode() {
   const top = codeTa.scrollTop, h = codeTa.clientHeight || 250, cur = S.hudLine;
@@ -3427,22 +3465,40 @@ codeTa.addEventListener('click', () => {
   if (S.codeDirty || !S.ready || codeTa.selectionStart !== codeTa.selectionEnd) return;   // a drag-selection is for editing/copying
   goToLine(codeLineOf(codeTa.selectionStart), false);
 });
+// Live editing: a short pause after the last keystroke re-simulates the edited text in place -
+// same camera, same line, same tools/holders - with no Run button (John: the reload lost his place).
+const LIVE_MS = 600;
+let liveTimer = 0;
 codeTa.addEventListener('input', () => {
   const d = codeTa.value !== codeNorm;
   if (d && !S.codeDirty) { S.playing = false; updatePlay(); }
   setCodeDirty(d);
+  clearTimeout(liveTimer);
+  if (d) liveTimer = setTimeout(runCodeEdit, LIVE_MS);
 });
-const reloadOpts = () => ({ csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName, cimcoTools: S.cimcoTools, partMesh: S.partMesh, cimcoWarn: S.cimcoWarn });
-// Throw away unsaved edits (loading anything else does this too).
+const reloadOpts = () => ({ csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName, cimcoTools: S.cimcoTools, partMesh: S.partMesh, stockMesh: S.stockMesh, cimcoWarn: S.cimcoWarn });
+// Drop typing that has not been simulated yet (loading anything else does this).
 function exitCodeEdit() {
+  clearTimeout(liveTimer);
   if (!S.codeDirty) return;
   codeTa.value = codeNorm; setCodeDirty(false); renderCode(S.hudLine, true);
 }
+// Simulate what is in the box now, keeping the view and putting the sim on the line being edited.
 async function runCodeEdit() {
-  const newText = codeTa.value;
+  clearTimeout(liveTimer);
+  if (!S.codeDirty) return;
+  const newText = codeTa.value, line = codeLineOf(codeTa.selectionStart);
   const baseName = S.name.replace(/ \(edited\)$/, '');
-  await loadText(newText, baseName + ' (edited)', reloadOpts());   // a failed run leaves the edit in place to fix
+  await loadText(newText, baseName + (newText === S.origText ? '' : ' (edited)'), Object.assign(reloadOpts(), { live: true }));
+  if (S.ready && !S.codeDirty) goToLine(line, false);
 }
+// Back to the program exactly as it was opened.
+function undoEdits() {
+  if (codeTa.value === S.origText) return;
+  codeTa.value = S.origText; setCodeDirty(codeTa.value !== codeNorm);
+  if (S.codeDirty) runCodeEdit(); else updateEditRow();
+}
+function updateEditRow() { $('codeEditRow').hidden = S.origText == null || codeTa.value === S.origText; }
 function onOpChange() {
   applyPaths();
   for (const b of $('ops').querySelectorAll('button')) b.setAttribute('aria-current', String(+b.dataset.k === S.curOp));
@@ -3505,8 +3561,14 @@ $('fileFolder').onchange = e => { const fl = [...e.target.files]; e.target.value
 $('pickerCancel').onclick = hidePicker;
 $('pickerBack').addEventListener('click', e => { if (e.target === $('pickerBack')) hidePicker(); });
 document.addEventListener('keydown', e => { if (e.code === 'Escape' && !$('pickerBack').hidden) hidePicker(); });
-$('codeCancel').onclick = exitCodeEdit;
-$('codeRun').onclick = runCodeEdit;
+$('codeCancel').onclick = undoEdits;
+$('codeToggle').onclick = () => {
+  const show = $('codePane').hidden; $('codePane').hidden = !show;
+  $('codeToggle').setAttribute('aria-pressed', String(show));
+  try { localStorage.setItem('floorsim.codeHidden', show ? '0' : '1'); } catch (e) { /* storage blocked */ }
+  if (show) paintCode();
+};
+try { if (localStorage.getItem('floorsim.codeHidden') === '1') { $('codePane').hidden = true; $('codeToggle').setAttribute('aria-pressed', 'false'); } } catch (e) { /* storage blocked */ }
 $('lineUp').onclick = () => stepLine(-1);
 $('lineDn').onclick = () => stepLine(1);
 $('fileLib').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; handleFiles(fl); };

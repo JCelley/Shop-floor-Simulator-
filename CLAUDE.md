@@ -99,9 +99,15 @@ npm test           # all suites; needs Node 18+ and Python 3 for the Fusion-side
   still exists for edge cases. Only programs with an `.NC` file are offered. Details in NOTES. Where the browser has the
   File System Access API (Chrome, ChromeOS), the header shows a Program # box + "Folder:" button instead, and "Open job
   folder" is only the fallback for other browsers.
-- **G-code panel** is one always-editable textarea (no Edit button). Unedited, it steps the sim line by line: click a line,
-  mouse wheel (one notch = one line), Up/Down keys, or the two step buttons. Edits are never saved; "Run edited code" reloads
-  through the normal path, keeping the `.setup` tool/holder data.
+- **G-code panel** sits over the left of the 3D view with no background (white text, dark outline; "Code" button hides it).
+  One always-editable textarea. Unedited, it steps the sim line by line: click a line, mouse wheel (one notch = one line),
+  Up/Down keys, or the two step buttons. Edits are **live**: 600 ms after typing stops, `runCodeEdit` reloads through the
+  normal path with `live: true` - same camera, stock box, cursor and scroll, sim placed on the edited line, small "Updating…"
+  tag instead of the full-screen cover. Never saved; "Undo all edits" goes back to the file as opened (`S.origText`).
+- **Right panel:** the T#, tool name, operation and Restart seq # are pinned (`.now-pin`, sticky); the rest scrolls under it.
+- **2nd-op stock:** when the `.setup`'s `_STOCK.stl` is a real shape rather than a plain block (a 2nd op's leftover stock,
+  e.g. O1247), the sim starts from that shape (`stockMesh` -> `seedHeightSim(..., emptyOutside)`), seen from above. Not on
+  tri-dexel jobs (tilted planes or an undercut tool) - those still start from the block, with a warning.
 - **Restart seq #**: each op carries `seqN`, the N on its own tool-change (`G100`) line - shown as an `N25` badge and in
   the "Restart seq #" box. It equals the CSV Seq# whole number on every op checked (O1228, O1138).
 

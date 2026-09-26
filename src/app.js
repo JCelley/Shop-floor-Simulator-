@@ -564,8 +564,11 @@ function toast(msg, ms = 5000) {
   const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t);
   toast._t = setTimeout(() => { t.hidden = true; }, ms);
 }
-function showBusy(txt, frac) { $('busy').hidden = false; setText($('busyTxt'), txt); $('busyBar').style.width = Math.round(clamp(frac, 0, 1) * 100) + '%'; }
-function hideBusy() { $('busy').hidden = true; }
+function showBusy(txt, frac) {
+  if (S.quietBusy) { $('liveBusy').hidden = false; return; }
+  $('busy').hidden = false; setText($('busyTxt'), txt); $('busyBar').style.width = Math.round(clamp(frac, 0, 1) * 100) + '%';
+}
+function hideBusy() { $('busy').hidden = true; $('liveBusy').hidden = true; }
 const readFile = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(r.error); r.readAsText(f); });
 
 function autoStock() {
@@ -595,7 +598,7 @@ async function loadText(text, name, opts = {}) {
   try {
     const un = $('unitSel').value;
     const P = NC.parseProgram(text, { units: un === 'auto' ? undefined : un });
-    if (!P.n) { toast('No tool motion found in that file. Is it a G-code program?'); return; }
+    if (!P.n) { toast(opts.live ? 'The edited code has no tool moves, so the sim still shows the last version that did.' : 'No tool motion found in that file. Is it a G-code program?'); return; }
     const csv = opts.csv || null, lib = opts.lib || null, setup = opts.setup || null, info = [];
     if (csv) { const n = NC.applyCsvTools(P.tools, csv); info.push(`Setup sheet: ${n} tool${n === 1 ? '' : 's'} sized from it.`); }
     if (opts.tools) for (const o of opts.tools) { const t = P.tools.find(x => x.no === o.no); if (t) { Object.assign(t, o); t.defaulted = false; NC.completeTool(t); } }
@@ -625,12 +628,18 @@ async function loadText(text, name, opts = {}) {
     // The real finished-part mesh from the .setup file, when one was loaded - parsed and
     // kept here for a future true deviation-colouring feature, not rendered by anything yet.
     S.partMesh = opts.partMesh || null;
-    setCodeText(text);
+    // The .setup's STOCK.stl when it is a real shape (a 2nd op's leftover stock), not just a box.
+    S.stockMesh = opts.stockMesh || null;
+    if (!opts.live) S.origText = String(text).replace(/\r/g, '');   // what "Undo all edits" goes back to
+    setCodeText(text, opts.live);
     S.prog = P; S.name = name; S.tools = P.tools; S.toolsDirty = false;
     setText($('fname'), name + (opts.exported ? '   exported ' + opts.exported.slice(0, 16).replace('T', ' ') : ''));
-    if (opts.stock) S.stock = Object.assign({}, opts.stock); else if (setup && setup.stock) S.stock = stockFromSetup(setup.stock); else autoStock();
+    // A live edit keeps the stock box it already had - re-guessing it from the edited moves would
+    // make the block jump around while typing.
+    if (opts.live && S.stock) { /* keep */ } else if (opts.stock) S.stock = Object.assign({}, opts.stock); else if (setup && setup.stock) S.stock = stockFromSetup(setup.stock); else autoStock();
     fillStockInputs(); buildToolCards(); buildOps(); buildTicks(); buildPaths();
     if (setup) info.push(`Setup file "${setup.setup || 'setup'}": ${setup.stock ? 'stock box from Fusion' : 'no stock box, using a guess'}, ${(setup.fixtures || []).length} workholding part${(setup.fixtures || []).length === 1 ? '' : 's'}.`);
+    if (S.stockMesh && !chainSeed) info.push('Starting stock: the shape in the setup file (what the previous op left), seen from above.');
     if (opts.exported) info.push('Job file exported ' + opts.exported.replace('T', ' ') + (opts.document ? ' from "' + opts.document + '"' : '') + '.');
     if (setup && setup.stockMode === 7) {
       if (chainSeed) info.push(`Stock seeded from the previous setup's finished result ("${chainSeed.fromName}").`);
@@ -646,7 +655,9 @@ async function loadText(text, name, opts = {}) {
     if (opts.cimcoWarn && opts.cimcoWarn.length) extraWarn.push(...opts.cimcoWarn);
     const lines = info.concat(P.notes), warnList = P.warnings.concat(extraWarn, checkSetup(P, S.stock, setup, !!chainSeed));
     $('warns').innerHTML = lines.map(esc).join('<br>') + (warnList.length ? (lines.length ? '<br>' : '') + '<b>Heads up</b><br>' + warnList.map(esc).join('<br>') : '');
-    await rebuild(true);
+    S.quietBusy = !!opts.live;   // a live edit shows a small "updating" tag, not the full-screen cover
+    try { await rebuild(!opts.live); } finally { S.quietBusy = false; }
+    if (S.stockMesh && !chainSeed && S.triDexel) $('warns').innerHTML += (warnList.length ? '<br>' : '<br><b>Heads up</b><br>') + esc('This program uses tilted planes or an undercut tool, so the starting stock is drawn as a plain block, not the shape in the setup file.');
     if (chainSeed && S.chainCoverage != null && S.chainCoverage < 0.05) {
       $('warns').innerHTML += (warnList.length || lines.length ? '<br>' : '<b>Heads up</b><br>') +
         `The chained stock from "${chainSeed.fromName}" barely overlaps this setup's stock box (${Math.round(S.chainCoverage * 100)}% covered) - the two setups' WCS placements may not line up, or this pairing may be wrong.`;
@@ -675,7 +686,7 @@ async function handleFiles(files) {
       }
     } catch (err) { console.error(err); toast('Could not open ' + f.name + ': ' + err.message); }
   }
-  let cimcoTools = null, partMesh = null, cimcoWarn = [];
+  let cimcoTools = null, partMesh = null, stockMesh = null, cimcoWarn = [];
   if (b.cimcoSetupText) {
     try {
       const parsed = NC.parseCimcoSetup(b.cimcoSetupText);
@@ -687,13 +698,13 @@ async function handleFiles(files) {
       const result = NC.cimcoToFloorsimSetup(parsed, meshes, programName);
       if (!b.setup) b.setup = result.setup;   // a JSON floorsim-setup file, if also present, wins - simple, documented default
       cimcoTools = parsed.tools.length ? parsed : null;
-      partMesh = result.partMesh;
+      partMesh = result.partMesh; stockMesh = result.stockMesh;
       cimcoWarn = result.warnings;
     } catch (err) { console.error(err); toast('Could not read the .setup/STL files: ' + err.message); }
   }
-  const cimcoOpts = { cimcoTools, partMesh, cimcoWarn };
+  const cimcoOpts = { cimcoTools, partMesh, stockMesh, cimcoWarn };
   // Adding just a CSV/tool library to the program already on screen keeps its setup-file data.
-  const keptOpts = cimcoTools ? cimcoOpts : { cimcoTools: S.cimcoTools, partMesh: S.partMesh, cimcoWarn: S.cimcoWarn };
+  const keptOpts = cimcoTools ? cimcoOpts : { cimcoTools: S.cimcoTools, partMesh: S.partMesh, stockMesh: S.stockMesh, cimcoWarn: S.cimcoWarn };
   if (b.job) return loadText(b.job.gcode, b.job.program || 'Job', Object.assign({ setup: b.job, lib: b.job.toolLibrary, ops: b.job.ops, exported: b.job.exported, document: b.job.document }, cimcoOpts));
   if (b.bundle) return loadText(b.bundle.gcode, b.bundle.name || 'Job bundle', Object.assign({ stock: b.bundle.stock, tools: b.bundle.tools, csv: b.csv, lib: b.lib, setup: b.setup }, cimcoOpts));
   if (b.text) return loadText(b.text, b.name, Object.assign({ csv: b.csv, lib: b.lib, setup: b.setup }, cimcoOpts));
@@ -901,6 +912,9 @@ async function prepass(token, sims, td) {
   if (S.chainSeed && sims.has(0)) {
     const tpos = NC.transformPoints(S.chainSeed.mesh.pos, S.chainSeed.fromWcs, S.chainSeed.toWcs);
     S.chainCoverage = NC.seedHeightSim(sims.get(0), tpos, S.chainSeed.mesh.idx);
+  } else if (S.stockMesh && sims.has(0) && !td) {
+    // Start from the setup file's own stock shape (seen from above - see seedHeightSim).
+    NC.seedHeightSim(sims.get(0), S.stockMesh.pos, S.stockMesh.idx, true);
   }
   // Tri-dexel's grids count toward the same fixed snapshot memory budget - on the real O1224 job
   // they are the bulk of it (5 signed grids, ~3MB per snapshot all told), so leaving them out
@@ -1179,13 +1193,17 @@ function dispCur() {
 const CODE_LH = 20, CODE_PADT = 6;
 const codeTa = $('code');
 let codeStarts = new Int32Array([0]), codeNorm = '', codeAutoTop = -1, codeLastTop = 0, codeWheelAcc = 0;
-function setCodeText(text) {
+// live: the text came from the box itself, so leave the box alone (caret, scroll, and anything
+// typed since) - just line the numbers up with the version now simulated.
+function setCodeText(text, live) {
   codeNorm = String(text).replace(/\r/g, '');   // same line split as the parser, so line numbers agree
-  codeTa.value = codeNorm;
+  if (!live) codeTa.value = codeNorm;
   const st = [0]; for (let k = codeNorm.indexOf('\n'); k >= 0; k = codeNorm.indexOf('\n', k + 1)) st.push(k + 1);
   codeStarts = Int32Array.from(st);
-  S.selLine = null; S.selMove = -1; S.hudLine = -1; S.codeFree = false;
-  setCodeDirty(false);
+  // codeFree while live: the re-run starts at move 0, and following it would scroll the box away
+  // from the line being edited.
+  S.selLine = null; S.selMove = -1; S.hudLine = -1; S.codeFree = !!live;
+  setCodeDirty(codeTa.value !== codeNorm);
 }
 function codeLineOf(pos) {
   let lo = 0, hi = codeStarts.length - 1;
@@ -1193,8 +1211,8 @@ function codeLineOf(pos) {
   return lo + 1;
 }
 function setCodeDirty(d) {
-  S.codeDirty = d; $('codeEditRow').hidden = !d; $('codeWrap').classList.toggle('dirty', d);
-  paintCode();
+  S.codeDirty = d; $('codeWrap').classList.toggle('dirty', d);
+  updateEditRow(); paintCode();
 }
 function paintCode() {
   const top = codeTa.scrollTop, h = codeTa.clientHeight || 250, cur = S.hudLine;
@@ -1259,22 +1277,40 @@ codeTa.addEventListener('click', () => {
   if (S.codeDirty || !S.ready || codeTa.selectionStart !== codeTa.selectionEnd) return;   // a drag-selection is for editing/copying
   goToLine(codeLineOf(codeTa.selectionStart), false);
 });
+// Live editing: a short pause after the last keystroke re-simulates the edited text in place -
+// same camera, same line, same tools/holders - with no Run button (John: the reload lost his place).
+const LIVE_MS = 600;
+let liveTimer = 0;
 codeTa.addEventListener('input', () => {
   const d = codeTa.value !== codeNorm;
   if (d && !S.codeDirty) { S.playing = false; updatePlay(); }
   setCodeDirty(d);
+  clearTimeout(liveTimer);
+  if (d) liveTimer = setTimeout(runCodeEdit, LIVE_MS);
 });
-const reloadOpts = () => ({ csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName, cimcoTools: S.cimcoTools, partMesh: S.partMesh, cimcoWarn: S.cimcoWarn });
-// Throw away unsaved edits (loading anything else does this too).
+const reloadOpts = () => ({ csv: S.csv, lib: S.lib, setup: S.setup, ops: S.opsList, exported: S.exported, document: S.docName, cimcoTools: S.cimcoTools, partMesh: S.partMesh, stockMesh: S.stockMesh, cimcoWarn: S.cimcoWarn });
+// Drop typing that has not been simulated yet (loading anything else does this).
 function exitCodeEdit() {
+  clearTimeout(liveTimer);
   if (!S.codeDirty) return;
   codeTa.value = codeNorm; setCodeDirty(false); renderCode(S.hudLine, true);
 }
+// Simulate what is in the box now, keeping the view and putting the sim on the line being edited.
 async function runCodeEdit() {
-  const newText = codeTa.value;
+  clearTimeout(liveTimer);
+  if (!S.codeDirty) return;
+  const newText = codeTa.value, line = codeLineOf(codeTa.selectionStart);
   const baseName = S.name.replace(/ \(edited\)$/, '');
-  await loadText(newText, baseName + ' (edited)', reloadOpts());   // a failed run leaves the edit in place to fix
+  await loadText(newText, baseName + (newText === S.origText ? '' : ' (edited)'), Object.assign(reloadOpts(), { live: true }));
+  if (S.ready && !S.codeDirty) goToLine(line, false);
 }
+// Back to the program exactly as it was opened.
+function undoEdits() {
+  if (codeTa.value === S.origText) return;
+  codeTa.value = S.origText; setCodeDirty(codeTa.value !== codeNorm);
+  if (S.codeDirty) runCodeEdit(); else updateEditRow();
+}
+function updateEditRow() { $('codeEditRow').hidden = S.origText == null || codeTa.value === S.origText; }
 function onOpChange() {
   applyPaths();
   for (const b of $('ops').querySelectorAll('button')) b.setAttribute('aria-current', String(+b.dataset.k === S.curOp));
@@ -1337,8 +1373,14 @@ $('fileFolder').onchange = e => { const fl = [...e.target.files]; e.target.value
 $('pickerCancel').onclick = hidePicker;
 $('pickerBack').addEventListener('click', e => { if (e.target === $('pickerBack')) hidePicker(); });
 document.addEventListener('keydown', e => { if (e.code === 'Escape' && !$('pickerBack').hidden) hidePicker(); });
-$('codeCancel').onclick = exitCodeEdit;
-$('codeRun').onclick = runCodeEdit;
+$('codeCancel').onclick = undoEdits;
+$('codeToggle').onclick = () => {
+  const show = $('codePane').hidden; $('codePane').hidden = !show;
+  $('codeToggle').setAttribute('aria-pressed', String(show));
+  try { localStorage.setItem('floorsim.codeHidden', show ? '0' : '1'); } catch (e) { /* storage blocked */ }
+  if (show) paintCode();
+};
+try { if (localStorage.getItem('floorsim.codeHidden') === '1') { $('codePane').hidden = true; $('codeToggle').setAttribute('aria-pressed', 'false'); } } catch (e) { /* storage blocked */ }
 $('lineUp').onclick = () => stepLine(-1);
 $('lineDn').onclick = () => stepLine(1);
 $('fileLib').onchange = e => { const fl = [...e.target.files]; e.target.value = ''; handleFiles(fl); };

@@ -85,7 +85,7 @@ button, select, input { font: inherit; color: inherit; }
 .seg button { min-height: 36px; padding: 0 13px; border: 0; background: transparent; font-weight: 600; cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
-.legend { position: absolute; left: 10px; top: 58px; display: flex; flex-direction: column; gap: 5px; font-size: 14px; background: color-mix(in srgb, var(--panel2) 88%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; max-width: 250px; }
+.legend { position: absolute; right: 10px; top: 58px; display: flex; flex-direction: column; gap: 5px; font-size: 14px; background: color-mix(in srgb, var(--panel2) 88%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; max-width: 250px; }
 .legend div { display: flex; align-items: center; gap: 8px; }
 .sw { width: 14px; height: 14px; border-radius: 3px; flex: none; border: 1px solid rgba(0, 0, 0, .25); }
 .chips { position: absolute; left: 10px; bottom: 10px; right: 10px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
@@ -115,7 +115,8 @@ button, select, input { font: inherit; color: inherit; }
 /* ---------- side panel ---------- */
 .side section, .side details { border-bottom: 1px solid var(--line); }
 .side h2 { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: var(--muted); }
-.now { padding: 14px; }
+.now-pin { position: sticky; top: 0; z-index: 3; background: var(--panel); padding: 14px 14px 10px; box-shadow: 0 6px 8px -8px rgba(0, 0, 0, .35); }
+.now { padding: 0 14px 14px; }
 .now-head { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
 .tnum { font: 700 68px/.85 var(--font); letter-spacing: -.02em; min-width: 1.4ch; }
 .tname { font-size: 19px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
@@ -132,24 +133,29 @@ button, select, input { font: inherit; color: inherit; }
 .restart b { font: 700 20px/1.1 var(--mono); }
 .xyz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; font: 600 17px var(--mono); }
 .xyz span { color: var(--muted); font-weight: 500; margin-right: 4px; }
-.code { padding: 10px 14px 12px; }
-.code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.code-head h2 { margin: 0; }
+/* G-code over the left of the 3D view with no panel behind it, so the sim stays visible. Text is
+   white with a dark outline so it reads over any stock/fixture colour in either theme. */
+.code { position: absolute; left: 10px; top: 58px; bottom: 52px; width: min(380px, 44%); z-index: 2; display: flex; flex-direction: column; pointer-events: none; --ov-ink: #fff; --ov-halo: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
+.code[hidden] { display: none; }
+.code-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; pointer-events: auto; }
+.code-head h2 { margin: 0; color: var(--ov-ink); text-shadow: var(--ov-halo); font-size: 16px; font-weight: 700; }
 .code-step { display: flex; gap: 6px; }
 .btn.icon.sm { width: 40px; min-height: 36px; }
-/* One real textarea holds the whole program (click to edit, no Edit button). The current-line
+.live-busy { font: 600 13px/1 var(--mono); padding: 5px 8px; border-radius: 4px; background: var(--accent); color: var(--accent-ink); }
+.live-busy[hidden] { display: none; }
+/* One real textarea holds the whole program (type to edit, no Edit button). The current-line
    band and the line numbers are drawn underneath / beside it and kept in step by app.js, which
    is why the line height is fixed in px here and mirrored as CODE_LH there. */
-.codewrap { position: relative; height: 262px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
-.codewrap.dirty { border-color: var(--accent); }
-#code { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border: 0; resize: none; outline: none; background: transparent; color: var(--ink); font: 500 13.5px/20px var(--mono); padding: 6px 8px 6px calc(5ch + 16px); white-space: pre; overflow: auto; z-index: 1; tab-size: 4; }
+.codewrap { position: relative; flex: 1; min-height: 120px; background: transparent; border-left: 2px solid transparent; overflow: hidden; pointer-events: auto; }
+.codewrap.dirty { border-left-color: var(--accent); }
+#code { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border: 0; resize: none; outline: none; background: transparent; color: var(--ov-ink); text-shadow: var(--ov-halo); caret-color: var(--accent); font: 600 13.5px/20px var(--mono); padding: 6px 8px 6px calc(5ch + 16px); white-space: pre; overflow: auto; z-index: 1; tab-size: 4; scrollbar-color: rgba(255, 255, 255, .45) transparent; }
 #code:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
-.code-hl { position: absolute; left: 0; right: 0; height: 20px; background: var(--code-cur); z-index: 0; pointer-events: none; }
-.code-gutter { position: absolute; left: 0; top: 0; bottom: 0; width: calc(5ch + 8px); font: 500 13.5px/20px var(--mono); color: var(--muted); text-align: right; padding-right: 6px; pointer-events: none; z-index: 2; overflow: hidden; background: var(--panel2); border-right: 1px solid var(--line); }
+.code-hl { position: absolute; left: 0; right: 0; height: 20px; background: rgba(242, 183, 5, .38); z-index: 0; pointer-events: none; }
+.code-gutter { position: absolute; left: 0; top: 0; bottom: 0; width: calc(5ch + 8px); font: 500 13.5px/20px var(--mono); color: #d5dbe2; text-shadow: var(--ov-halo); text-align: right; padding-right: 6px; pointer-events: none; z-index: 2; overflow: hidden; border-right: 1px solid rgba(255, 255, 255, .25); }
 .code-gutter div { height: 20px; }
-.code-gutter div.cur { color: var(--ink); font-weight: 700; }
-.code-edit-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
-.code-edit-note { font-size: 12px; color: var(--muted); }
+.code-gutter div.cur { color: #fff; font-weight: 700; }
+.code-edit-row { display: flex; gap: 8px; margin-top: 6px; align-items: center; flex-wrap: wrap; pointer-events: auto; }
+.code-edit-note { font-size: 13px; font-weight: 600; color: var(--ov-ink); text-shadow: var(--ov-halo); }
 .opsec { padding: 10px 0 6px; }
 .opsec h2 { padding: 0 14px; }
 #ops { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }

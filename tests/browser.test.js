@@ -40,6 +40,26 @@ const ok = (c, m) => { if (!c) { fails++; console.log('FAIL', m); } else console
   ok(px.distinct > 3, `canvas shows real rendered content (${px.distinct} distinct sampled colours)`);
   await page.screenshot({ path: path.join(OUT_DIR, 'demo.png') });
 
+  // ---- layout (John, 2026-09-25): G-code over the left of the 3D view with nothing behind it;
+  // the active tool and Restart seq # stay pinned at the top right while the panel scrolls
+  const lay = await page.evaluate(async () => {
+    const r = id => document.getElementById(id).getBoundingClientRect();
+    const vp = r('vp'), code = r('codeWrap'), side = document.querySelector('.side');
+    const bg = getComputedStyle(document.getElementById('codeWrap')).backgroundColor, taBg = getComputedStyle(document.getElementById('code')).backgroundColor;
+    window.__floorsim.goTo(window.__floorsim.S.prog.total * 0.5); await new Promise(res => setTimeout(res, 300));
+    side.querySelectorAll('details').forEach(d => { d.open = true; });
+    const t0 = r('tNo').top, rs0 = r('restartBox').top;
+    side.scrollTop = side.scrollHeight; await new Promise(res => setTimeout(res, 200));
+    return { inVp: code.left >= vp.left && code.right < vp.left + vp.width / 2 && code.top > vp.top && code.bottom < vp.bottom,
+      clear: /rgba\(0, 0, 0, 0\)|transparent/.test(bg) && /rgba\(0, 0, 0, 0\)|transparent/.test(taBg),
+      scrolled: side.scrollTop, tMoved: r('tNo').top - t0, rsMoved: r('restartBox').top - rs0, rsShown: !document.getElementById('restartBox').hidden };
+  });
+  ok(lay.inVp, 'the G-code sits over the left half of the 3D view');
+  ok(lay.clear, 'with no background behind it');
+  // (the demo program has no N numbers, so its Restart box is hidden but still inside the pinned block)
+  ok(lay.scrolled > 100 && lay.tMoved === 0 && lay.rsMoved === 0, `T# and Restart seq # stay put while the panel scrolls ${lay.scrolled}px (moved ${lay.tMoved}px / ${lay.rsMoved}px)`);
+  await page.evaluate(() => { document.querySelector('.side').scrollTop = 0; });
+
   // ---- CPU throttle 4x (rough Chromebook approximation) + the stress program ----
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
