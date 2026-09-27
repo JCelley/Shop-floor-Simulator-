@@ -217,7 +217,9 @@ const NC = (() => {
     if (!csv) return 0;
     let n = 0; const k = csv.unit === 'in' ? 25.4 : 1;
     for (const c of csv.tools) {
-      const t = tools.find(x => x.no === c.no); if (!t || t.fromLib) continue;
+      const t = tools.find(x => x.no === c.no); if (!t) continue;
+      if (c.name) t.csvDesc = c.name;   // the shop's own tool description (T-description), shown in the tool header
+      if (t.fromLib) continue;
       if (UNDERCUT_RE.test(c.name || '')) t.undercut = true;
       if (c.cutD > 0) t.D = c.cutD;
       if (c.ooh > 0) t.stick = c.ooh;

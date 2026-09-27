@@ -89,6 +89,9 @@ const settled = async () => { for (let i = 0; i < 200 && w.__floorsim.S.pendingS
   d.querySelectorAll('#ops button')[k3].click(); await settled();
   const rb = d.getElementById('restartBox');
   ok(!rb.hidden && /Restart seq #/.test(rb.textContent) && d.getElementById('restartN').textContent === String(g100[3].n), `clicking op ${k3 + 1} shows "Restart seq # ${g100[3].n}": "${rb.textContent}"`);
+  // the tool header uses the setup sheet's own description, with no mm/flute line under it
+  const csvTool = w.eval('NC').parseSetupCsv(csv).tools.find(t => t.no === P.ops[k3].tool);
+  ok(d.getElementById('tName').textContent === csvTool.name && d.getElementById('tDims').textContent === '', `tool header shows the setup-sheet description "${csvTool.name}": "${d.getElementById('tName').textContent}"`);
 
   // ---- jump to a line: everything on and before it has run, nothing after
   const L = g100[2].line + 6;

@@ -669,7 +669,9 @@ const NC = (() => {
     if (!csv) return 0;
     let n = 0; const k = csv.unit === 'in' ? 25.4 : 1;
     for (const c of csv.tools) {
-      const t = tools.find(x => x.no === c.no); if (!t || t.fromLib) continue;
+      const t = tools.find(x => x.no === c.no); if (!t) continue;
+      if (c.name) t.csvDesc = c.name;   // the shop's own tool description (T-description), shown in the tool header
+      if (t.fromLib) continue;
       if (UNDERCUT_RE.test(c.name || '')) t.undercut = true;
       if (c.cutD > 0) t.D = c.cutD;
       if (c.ooh > 0) t.stick = c.ooh;
@@ -3367,8 +3369,10 @@ function updateHud(force) {
   if (no !== S.hudTool && t) {
     S.hudTool = no;
     setText($('tNo'), no ? 'T' + no : 'T-');
-    setText($('tName'), toolLabel(t));
-    setText($('tDims'), `Ø${+t.D.toFixed(3)} mm` + (t.type === 'bull' ? `, R${+t.rc.toFixed(2)}` : '') + `, flute ${+t.flute.toFixed(1)}`);
+    // The setup sheet's own description (e.g. "3/8 3FL EM 1.5LOC AL UC") says it all in the shop's
+    // words; the mm size line is only a fallback when there is no setup sheet (John, 2026-09-27).
+    setText($('tName'), t.csvDesc || toolLabel(t));
+    setText($('tDims'), t.csvDesc ? '' : `Ø${+t.D.toFixed(3)} mm` + (t.type === 'bull' ? `, R${+t.rc.toFixed(2)}` : '') + `, flute ${+t.flute.toFixed(1)}`);
     $('tSvg').innerHTML = toolSVG(t);
   }
   setText($('rSpin'), Math.round(P.S[i]));

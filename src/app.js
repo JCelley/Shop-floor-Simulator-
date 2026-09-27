@@ -1159,8 +1159,10 @@ function updateHud(force) {
   if (no !== S.hudTool && t) {
     S.hudTool = no;
     setText($('tNo'), no ? 'T' + no : 'T-');
-    setText($('tName'), toolLabel(t));
-    setText($('tDims'), `Ø${+t.D.toFixed(3)} mm` + (t.type === 'bull' ? `, R${+t.rc.toFixed(2)}` : '') + `, flute ${+t.flute.toFixed(1)}`);
+    // The setup sheet's own description (e.g. "3/8 3FL EM 1.5LOC AL UC") says it all in the shop's
+    // words; the mm size line is only a fallback when there is no setup sheet (John, 2026-09-27).
+    setText($('tName'), t.csvDesc || toolLabel(t));
+    setText($('tDims'), t.csvDesc ? '' : `Ø${+t.D.toFixed(3)} mm` + (t.type === 'bull' ? `, R${+t.rc.toFixed(2)}` : '') + `, flute ${+t.flute.toFixed(1)}`);
     $('tSvg').innerHTML = toolSVG(t);
   }
   setText($('rSpin'), Math.round(P.S[i]));
