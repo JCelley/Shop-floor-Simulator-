@@ -1167,7 +1167,10 @@ function updateHud(force) {
   }
   setText($('rSpin'), Math.round(P.S[i]));
   const rapid = !P.K[i];
-  setText($('rFeedL'), rapid ? 'Moving' : 'Feed mm/min'); setText($('rFeed'), rapid ? 'Rapid' : Math.round(P.F[i]));
+  // Feed in the program's own units: G20 (or no G20/G21 on the Brother, which defaults to inches)
+  // shows in/min as written in the code; G21 shows mm/min. Internally it is always mm/min.
+  setText($('rFeedL'), rapid ? 'Moving' : P.inch ? 'Feed in/min' : 'Feed mm/min');
+  setText($('rFeed'), rapid ? 'Rapid' : P.inch ? +(P.F[i] / 25.4).toFixed(1) : Math.round(P.F[i]));
   setText($('rCool'), coolText(P.CO[i]));
   if (P.OP[i] !== S.curOp) { S.curOp = P.OP[i]; onOpChange(); }
   const op = P.ops[S.curOp];

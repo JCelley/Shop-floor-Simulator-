@@ -6,6 +6,9 @@
 const NC = (() => {
   'use strict';
   const RAPID_MMPM = 24000;
+  // Peck cycles (G73/G83): how far above the last depth the drill comes back to before feeding
+  // again (and G73's chip-break back-off). A machine parameter, not in the program - assumed.
+  const PECK_CLEAR = 0.5, PECK_MAX = 5000;
   const CC_NOTE = 'Cutter compensation (G41/G42) is treated as wear compensation: the programmed path is the tool centre, and offset values are not applied.';          // assumed rapid rate for time estimates
   // Undercut-shaped tools (wider cutting profile than the neck behind it) cannot be represented by a
   // one-height-per-column height field - see docs/NOTES.md. Detected by name only; stock removal for
@@ -555,7 +558,7 @@ const NC = (() => {
 
     let x = 0, y = 0, z = 0, abs = true, plane = 17, motion = -1, r98 = true;
     let feed = 0, spindle = 0, spinOn = false, coolant = 0, tool = 0, pendingTool = 0;
-    let cycleR = 0, cycleZ = 0, cycleInit = 0;
+    let cycleR = 0, cycleZ = 0, cycleInit = 0, cycleQ = 0;
     let pendingLabel = null, forceNewOp = true, init = null;
     let comp = 0, compD = 0; // 0 off, 1 = G41 (left), 2 = G42 (right); compD = the D register named on that same block
     // The N word on the current tool-change block (G100/M6) - the sequence number an operator types
@@ -715,12 +718,27 @@ const NC = (() => {
       else if (motion >= 73) {
         if ('R' in a) cycleR = abs ? a.R * k() : cycleInit + a.R * k();
         if ('Z' in a) cycleZ = abs ? a.Z * k() : cycleR + a.Z * k();
+        if ('Q' in a) cycleQ = Math.abs(a.Q) * k();
         if (newMotion !== null || hasXY) {
           const cx = 'X' in a ? tx : x, cy = 'Y' in a ? ty : y;
           const retr = r98 ? Math.max(cycleInit, cycleR) : cycleR;
           push(0, cx, cy, z, ln);
           push(0, cx, cy, cycleR, ln);
-          push(1, cx, cy, cycleZ, ln);          // peck cycles are simulated as one plunge
+          // Peck cycles, peck by peck: feed down Q, then G83 rapids all the way out to R and back
+          // down to just above the last depth; G73 only backs off a little to break the chip. The
+          // back-off / clearance distance is a machine parameter we can't read - PECK_CLEAR is an
+          // assumed typical value. Material removed is the same as one plunge; the motion and the
+          // time are what change.
+          if ((motion === 83 || motion === 73) && cycleQ > 0 && cycleR - cycleZ > cycleQ + 1e-6) {
+            let d = cycleR, n = 0;
+            while (d - cycleQ > cycleZ + 1e-6 && n++ < PECK_MAX) {
+              d -= cycleQ;
+              push(1, cx, cy, d, ln);
+              if (motion === 83) push(0, cx, cy, cycleR, ln);
+              push(0, cx, cy, Math.min(cycleR, d + PECK_CLEAR), ln);
+            }
+          }
+          push(1, cx, cy, cycleZ, ln);
           push(0, cx, cy, retr, ln);
         }
       }

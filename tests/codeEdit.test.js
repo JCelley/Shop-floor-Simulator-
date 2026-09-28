@@ -89,6 +89,13 @@ const settled = async () => { for (let i = 0; i < 200 && w.__floorsim.S.pendingS
   d.querySelectorAll('#ops button')[k3].click(); await settled();
   const rb = d.getElementById('restartBox');
   ok(!rb.hidden && /Restart seq #/.test(rb.textContent) && d.getElementById('restartN').textContent === String(g100[3].n), `clicking op ${k3 + 1} shows "Restart seq # ${g100[3].n}": "${rb.textContent}"`);
+  // feed is shown in the program's units: O1228 has no G20/G21 (Brother default inches) -> in/min, as written
+  {
+    let fi = -1; for (let i = 0; i < P.n && fi < 0; i++) if (P.K[i] && P.OP[i] === k3) fi = i;
+    F.goTo(P.cumT[fi] - 1e-6); await settled();
+    const fl = d.getElementById('rFeedL').textContent, fv = d.getElementById('rFeed').textContent;
+    ok(fl === 'Feed in/min' && Math.abs(+fv - P.F[fi] / 25.4) < 0.06, `inch program: feed shown as "${fl} ${fv}" (${(P.F[fi] / 25.4).toFixed(2)} in the code)`);
+  }
   // the tool header uses the setup sheet's own description, with no mm/flute line under it
   const csvTool = w.eval('NC').parseSetupCsv(csv).tools.find(t => t.no === P.ops[k3].tool);
   ok(d.getElementById('tName').textContent === csvTool.name && d.getElementById('tDims').textContent === '', `tool header shows the setup-sheet description "${csvTool.name}": "${d.getElementById('tName').textContent}"`);

@@ -27,7 +27,7 @@ const warns = () => d.getElementById('warns').textContent;
   await ready();
 
   console.log('--- warnings/notes shown:\n' + warns());
-  ok(S.ready && S.prog.n === 19126, 'program loaded: ' + S.prog.n + ' moves');
+  ok(S.ready && S.prog.n === 19216, 'program loaded: ' + S.prog.n + ' moves');
   // Values match the ones already verified against the toolpath via the Python export route (NOTES.md section 5).
   ok(Math.abs(S.stock.xmin + 26.9875) < 1e-6, 'stock xmin from the post: ' + S.stock.xmin);
   ok(Math.abs(S.stock.xmax - 4.7625) < 1e-6, 'stock xmax from the post: ' + S.stock.xmax);

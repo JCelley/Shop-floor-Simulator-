@@ -38,7 +38,7 @@ Read `docs/NOTES.md` for evidence, file formats, and the decision log. This file
 | Area | State |
 |---|---|
 | Parser (Brother dialect), stock removal engine, viewer, HUD, playback, probe | Built, tested headless. John viewed the published prototype and said it looks great. |
-| Real job O1228 (19,126 moves, 16 ops, 7 tools) | Loads, simulates in ~0.9 s here, placement checks pass |
+| Real job O1228 (19,216 moves with pecks expanded, 16 ops, 7 tools) | Loads, simulates in ~0.9 s here, placement checks pass |
 | `fusion/FloorSimExport.py` (per-setup stock + workholding export) | v1 ran in real Fusion (produced 4 files; exposed an origin-unit bug). v2 fix is tested on fake data and by re-placing v1 output. The new `wcs.originMM` field (for stock chaining) is likewise **not re-run in Fusion** — untested until a fresh export is generated and loaded |
 | `fusion/FloorSimJobExport/` add-in (button + one job file) | Installed and run for real (button now lives in the Milling tab's Actions panel). Not run since the `originMM` addition |
 | Cascading post writes the job JSON | `CSV_Cascade_Post_v2_6_7.cps` writes `<base>.floorsim.json` (stock box + setup name only, no G-code or tool list — see NOTES). **Run for real against O1228**: stock box matched the value already verified via the Python export route to the mm. The proven `CSV_Cascade_Post_v2_6_6.cps` is untouched |
@@ -125,7 +125,9 @@ npm test           # all suites; needs Node 18+ and Python 3 for the Fusion-side
   full multi-interval stock model (not built).
 - Cutter compensation G41/G42 is **not** applied (John confirmed his contours are tool-centre paths using wear comp), but the parser
   does track when it's active and its D register, shown as a badge on the Operations list (see NOTES.md).
-- Peck cycles (G73/G83) are simulated as one plunge. Rapids never cut. No holder/fixture collision.
+- Peck cycles (G73/G83) are simulated peck by peck (John asked, 2026-09-27). The re-approach clearance / G73 back-off
+  (`PECK_CLEAR`, 0.5 mm) is a machine parameter we can't read - assumed. Feed shows in the program's units (in/min for
+  G20 or the Brother's no-G20/G21 default, mm/min for G21). Rapids never cut. No holder/fixture collision.
 - Cycle-time estimate is rough (8.2 min vs the setup sheet's 11.4 for O1228). The post uses FEED_RATIO 0.85 and a 10 s tool
   change; copy those if the estimate matters.
 

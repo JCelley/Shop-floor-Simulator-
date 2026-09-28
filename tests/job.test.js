@@ -18,7 +18,7 @@ const warns = () => d.getElementById('warns').textContent;
   // the ONLY file the operator selects
   await F.handleFiles([new w.File([jobText], 'O1228.floorsim.json')]); await ready();
   console.log('--- warnings/notes shown:\n' + d.getElementById('warns').innerHTML.replace(/<br>/g, '\n').replace(/<[^>]+>/g, ''));
-  ok(S.name === 'O1228' && S.prog.n === 19126, 'one file loads the whole job: ' + S.name + ', ' + S.prog.n + ' moves');
+  ok(S.name === 'O1228' && S.prog.n === 19216, 'one file loads the whole job: ' + S.name + ', ' + S.prog.n + ' moves');
   ok(S.prog.ops.length === 16 && S.prog.ops[5].label === '2D Contour Finish Outside #26 #17 #18', 'operation names come from Fusion');
   ok(S.tools.length === 7 && S.tools.every(t => t.fromLib && t.holderSegs && t.holderSegs.length === 9), '7 tools with real holders');
   ok(Math.abs(S.stock.xmin + 26.988) < 1e-6 && Math.abs(S.stock.ztop - 118.794) < 1e-6, 'stock from the file');
