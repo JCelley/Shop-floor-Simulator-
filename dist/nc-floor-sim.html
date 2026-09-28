@@ -3405,7 +3405,9 @@ function updateHud(force) {
   setText($('opNow'), op ? op.label : ''); setText($('opSub'), `Operation ${S.curOp + 1} of ${P.ops.length}`);
   // The N on this op's tool-change (G100) line - where an operator restarts the machine for it.
   if (op && op.seqN != null) { $('restartBox').hidden = false; setText($('restartN'), op.seqN); } else $('restartBox').hidden = true;
-  setText($('pX'), x.toFixed(3)); setText($('pY'), y.toFixed(3)); setText($('pZ'), z.toFixed(3));
+  // Position in the program's units too, so it reads like the code: inches to 4 places, mm to 3.
+  const pu = P.inch ? v => (v / 25.4).toFixed(4) : v => v.toFixed(3);
+  setText($('pX'), pu(x)); setText($('pY'), pu(y)); setText($('pZ'), pu(z));
   setText($('timeTxt'), mmss(S.tau) + ' / ' + mmss(P.total));
   if (!S.scrubbing) $('scrub').value = P.total > 0 ? Math.round(S.tau / P.total * 10000) : 0;
   const ln = S.selLine != null ? S.selLine : P.LN[i];

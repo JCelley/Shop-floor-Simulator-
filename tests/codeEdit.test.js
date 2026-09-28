@@ -95,6 +95,10 @@ const settled = async () => { for (let i = 0; i < 200 && w.__floorsim.S.pendingS
     F.goTo(P.cumT[fi] - 1e-6); await settled();
     const fl = d.getElementById('rFeedL').textContent, fv = d.getElementById('rFeed').textContent;
     ok(fl === 'Feed in/min' && Math.abs(+fv - P.F[fi] / 25.4) < 0.06, `inch program: feed shown as "${fl} ${fv}" (${(P.F[fi] / 25.4).toFixed(2)} in the code)`);
+    // at the end of that move the position reads in inches, like the code
+    F.goTo(P.cumT[fi]); await settled();
+    const px = d.getElementById('pX').textContent, pz = d.getElementById('pZ').textContent;
+    ok(px === (P.X[fi] / 25.4).toFixed(4) && pz === (P.Z[fi] / 25.4).toFixed(4), `inch program: position shown in inches X${px} Z${pz}`);
   }
   // the tool header uses the setup sheet's own description, with no mm/flute line under it
   const csvTool = w.eval('NC').parseSetupCsv(csv).tools.find(t => t.no === P.ops[k3].tool);
