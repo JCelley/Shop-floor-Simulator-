@@ -564,6 +564,10 @@ const NC = (() => {
     let cycleR = 0, cycleZ = 0, cycleInit = 0, cycleQ = 0;
     let pendingLabel = null, forceNewOp = true, init = null;
     let comp = 0, compD = 0; // 0 off, 1 = G41 (left), 2 = G42 (right); compD = the D register named on that same block
+    // Active work offset, as written: "G54".."G59", "G54.1 P32", or "G54.1 P#153" when the offset
+    // number is a variable (two-table machines: each table's offset under its own number, picked by
+    // the variable). wcsVarVals: every literal value the program itself assigns to a variable.
+    let curWcs = null; const wcsVarVals = new Map();
     // The N word on the current tool-change block (G100/M6) - the sequence number an operator types
     // to restart the machine at that tool. Every op under one tool change shares it. Other N words
     // (the post's N96001/N99999 length-check macros) are deliberately not tracked.
@@ -579,7 +583,7 @@ const NC = (() => {
       if (!init) init = { x: nx, y: ny, z: nz };
       if (forceNewOp || pendingLabel !== null || !ops.length) {
         const t = getTool(tool);
-        ops.push({ label: pendingLabel || t.name || ('T' + tool), tool, move: X.length, line: ln, comp: 0, compD: 0, dim: '', seqN: curSeqN });
+        ops.push({ label: pendingLabel || t.name || ('T' + tool), tool, move: X.length, line: ln, comp: 0, compD: 0, dim: '', seqN: curSeqN, wcs: curWcs });
         pendingLabel = null; forceNewOp = false;
       }
       X.push(nx); Y.push(ny); Z.push(nz); K.push(kind); F.push(feed);
@@ -652,7 +656,8 @@ const NC = (() => {
       }
     };
 
-    const block = (words, ln) => {
+    // pVar: the variable number when the block says "G54.1 P#153" (the word reader only takes numbers)
+    const block = (words, ln, pVar) => {
       const g = [], mc = [], a = {};
       let nWord = null;
       for (const [c, v] of words) {
@@ -673,6 +678,8 @@ const NC = (() => {
           case 17: plane = 17; break;
           case 18: plane = 18; break;
           case 19: plane = 19; break;
+          case 54: case 55: case 56: case 57: case 58: case 59: curWcs = 'G' + v; break;
+          case 54.1: curWcs = pVar ? 'G54.1 P#' + pVar : ('P' in a ? 'G54.1 P' + Math.round(a.P) : 'G54.1'); break;
           case 98: r98 = true; break;
           case 99: r98 = false; break;
           case 0: case 1: case 2: case 3: newMotion = v; break;
@@ -763,7 +770,20 @@ const NC = (() => {
       const re = /([A-Za-z])\s*([-+]?(?:\d+\.?\d*|\.\d+))/g;
       let m;
       while ((m = re.exec(code))) words.push([m[1].toUpperCase(), parseFloat(m[2])]);
-      if (words.length) block(words, li + 1);
+      // "#153 = 2": remember every plain number the program puts in a variable (for G54.1 P#153)
+      const asg = /#(\d+)\s*=\s*([-+]?(?:\d+\.?\d*|\.\d+))(?![\d.#[])/g;
+      while ((m = asg.exec(code))) { const k = +m[1]; if (!wcsVarVals.has(k)) wcsVarVals.set(k, new Set()); wcsVarVals.get(k).add(+m[2]); }
+      const pv = /G0*54\.1\s*P\s*#\s*(\d+)/i.exec(code);
+      if (words.length) block(words, li + 1, pv ? +pv[1] : null);
+    }
+    // Each op's work offset as it should read on screen. A variable offset lists every value the
+    // program assigns to it ("G54.1 P1 or G54.1 P2"); one it never assigns is set on the machine.
+    for (const o of ops) {
+      const vm = o.wcs && /^G54\.1 P#(\d+)$/.exec(o.wcs);
+      if (!vm) { o.wcsText = o.wcs; continue; }
+      const vals = [...(wcsVarVals.get(+vm[1]) || [])].filter(v => v > 0 && Number.isInteger(v)).sort((p, q) => p - q);
+      o.wcsText = vals.length ? vals.map(v => 'G54.1 P' + v).join(' or ') : o.wcs;
+      o.wcsVar = +vm[1]; o.wcsFromMachine = !vals.length;
     }
 
     // Tilted-plane summary: a plain note when G68.2 planes were found (each is simulated in its

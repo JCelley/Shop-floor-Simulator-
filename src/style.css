@@ -142,6 +142,10 @@ button, select, input { font: inherit; color: inherit; }
 .restart { display: inline-flex; align-items: baseline; gap: 8px; margin-top: 8px; padding: 4px 10px; border: 2px solid var(--accent); border-radius: 6px; background: var(--panel2); }
 .restart span { font-size: 14px; color: var(--muted); font-weight: 600; }
 .restart b { font: 700 20px/1.1 var(--mono); }
+.hdr-boxes { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.restart[hidden] { display: none; }
+.restart.wcs { border-color: var(--line); }
+.restart.wcs b { font-size: 17px; }
 .xyz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; font: 600 17px var(--mono); }
 .xyz span { color: var(--muted); font-weight: 500; margin-right: 4px; }
 /* G-code over the left of the 3D view with no panel behind it, so the sim stays visible. Text is

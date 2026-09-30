@@ -100,6 +100,7 @@ const settled = async () => { for (let i = 0; i < 200 && w.__floorsim.S.pendingS
     const px = d.getElementById('pX').textContent, pz = d.getElementById('pZ').textContent;
     ok(px === (P.X[fi] / 25.4).toFixed(4) && pz === (P.Z[fi] / 25.4).toFixed(4), `inch program: position shown in inches X${px} Z${pz}`);
   }
+  ok(!d.getElementById('wcsBox').hidden && d.getElementById('wcsTxt').textContent === 'G54', 'work offset shown next to Restart seq #: ' + d.getElementById('wcsTxt').textContent);
   // the tool header uses the setup sheet's own description, with no mm/flute line under it
   const csvTool = w.eval('NC').parseSetupCsv(csv).tools.find(t => t.no === P.ops[k3].tool);
   ok(d.getElementById('tName').textContent === csvTool.name && d.getElementById('tDims').textContent === '', `tool header shows the setup-sheet description "${csvTool.name}": "${d.getElementById('tName').textContent}"`);

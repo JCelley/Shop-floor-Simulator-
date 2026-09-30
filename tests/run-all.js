@@ -9,6 +9,7 @@ const steps = [
   ['engine (parser + stock removal)', 'node', ['tests/engine.test.js']],
   ['tilted work planes (G68.2/G53.1/G69, real 3+2 job)', 'node', ['tests/tilt.test.js']],
   ['peck drilling cycles (G83/G73), peck by peck', 'node', ['tests/peck.test.js']],
+  ['work offset per operation (G54.., G54.1 P#var)', 'node', ['tests/wcs.test.js']],
   ['undercut tools (T-slot/dovetail/lollipop, real 3+2 job)', 'node', ['tests/undercut.test.js']],
   ['per-plane simulation (3+2 Phase 2, real 3+2 job)', 'node', ['tests/planes.test.js']],
   ['tri-dexel shared-world-frame stock model (real 3+2 job)', 'node', ['tests/tridexel.test.js']],

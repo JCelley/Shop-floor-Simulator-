@@ -1204,6 +1204,11 @@ function updateHud(force) {
   setText($('opNow'), op ? op.label : ''); setText($('opSub'), `Operation ${S.curOp + 1} of ${P.ops.length}`);
   // The N on this op's tool-change (G100) line - where an operator restarts the machine for it.
   if (op && op.seqN != null) { $('restartBox').hidden = false; setText($('restartN'), op.seqN); } else $('restartBox').hidden = true;
+  // Work offset for this op; a variable offset lists every value the program gives it (two-table machines)
+  if (op && op.wcsText) {
+    $('wcsBox').hidden = false; setText($('wcsTxt'), op.wcsText);
+    $('wcsBox').title = op.wcsFromMachine ? `#${op.wcsVar} is not set anywhere in this program - its value comes from the machine` : op.wcsVar ? `#${op.wcsVar} is set in this program to each of these` : '';
+  } else $('wcsBox').hidden = true;
   // Position in the program's units too, so it reads like the code: inches to 4 places, mm to 3.
   const pu = P.inch ? v => (v / 25.4).toFixed(4) : v => v.toFixed(3);
   setText($('pX'), pu(x)); setText($('pY'), pu(y)); setText($('pZ'), pu(z));
