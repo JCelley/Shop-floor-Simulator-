@@ -170,5 +170,21 @@ for (const target of [240, 360, 520]) {
   ok(P.ops.map(o => o.seqN).join(',') === '10,10,20,', 'N from the G100 line for every op under that tool, from the T line for an M6 change, none when absent: ' + P.ops.map(o => o.seqN).join(','));
 }
 
+// ---- cycle-time estimate uses the cascading post's rules: cutting at 85% of the programmed feed,
+// plus 10 s per tool change. Two tools, each feeding 100 mm at F600: 2 x 100 / (600 x 0.85 / 60)
+// = 23.53 s of cutting, + 20 s of tool changes. The playback timeline has no tool-change time in it.
+{
+  const P = NC.parseProgram('G21 G90\nT1 M6\nG0 X0 Y0 Z0\nG1 X100 F600\nT2 M6\nG0 X0 Y0 Z0\nG1 X100 F600\n');
+  const cut = 2 * 100 / (600 * 0.85 / 60), rapid = P.total - cut;
+  ok(Math.abs(P.estimate - P.total - 20) < 1e-6 && rapid > 0 && rapid < 1, `estimate ${P.estimate.toFixed(2)} s = motion ${P.total.toFixed(2)} s (cutting ${cut.toFixed(2)}) + 2 tool changes x 10 s`);
+}
+
+// ---- tool tags under a tool change are not operation names: (FTL-..) tool life and (RTA-..) - the
+// same layout as real O1253, where "(RTA-22)" made a 5th op and the setup-sheet names stopped matching
+{
+  const P = NC.parseProgram(`(FACE2)\nN20 G100 T39 X0 Y0 G43 Z1. H39 D39 S4000 M03\n(RTA-22)\nG1 Z0 F10.\nX1.\n(CONTOUR10)\nN25 G100 T63 X0 Y0 G43 Z1. H63 D63 S9000 M03\n(FTL-6F61F8)\nG1 Z0 F10.\nX1.\n`);
+  ok(P.ops.length === 2 && P.ops[0].label === 'FACE2' && P.ops[1].label === 'CONTOUR10', 'RTA-/FTL- comments do not start operations: ' + P.ops.map(o => o.label).join(', '));
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

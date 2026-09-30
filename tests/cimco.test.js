@@ -145,5 +145,29 @@ const fixtureBuf = fs.readFileSync(path.join(DIR, 'O1224_FIXTURE.stl'));
   ok(at(11, 5) === sim.zBot, 'outside the stock shape there is no material');
 }
 
+// ---- a flip job: the previous op cut into the UNDERSIDE (real O1253: 44% of the bottom cut 0.507"
+// deep, top face flat). Made-up stand-in: a 10x10x10 block whose middle 4x4 was pocketed 4 mm up
+// from the bottom, built as closed 1 mm columns (each with its own top and bottom face).
+{
+  const tris = [];
+  const quad = (x0, y0, x1, y1, z, up) => { const a = [x0, y0, z], b = [x1, y0, z], c = [x1, y1, z], d = [x0, y1, z]; tris.push(...(up ? [a, b, c, a, c, d] : [a, c, b, a, d, c])); };
+  for (let j = 0; j < 10; j++) for (let i = 0; i < 10; i++) {
+    const pocket = i >= 3 && i < 7 && j >= 3 && j < 7;
+    quad(i, j, i + 1, j + 1, 10, true); quad(i, j, i + 1, j + 1, pocket ? 4 : 0, false);
+  }
+  const mesh = { pos: Float32Array.from(tris.flat()), idx: Uint32Array.from(tris.map((_, i) => i)) };
+  const sim = new NC.HeightSim({ xmin: 0, xmax: 10, ymin: 0, ymax: 10, zbot: 0, ztop: 10 }, 50);
+  const res = NC.seedHeightSimSolid(sim, mesh.pos, mesh.idx);
+  const k = (x, y) => Math.floor((y - sim.y0) / sim.dy) * sim.nx + Math.floor((x - sim.x0) / sim.dx);
+  const vIn = sim.voids.get(k(5, 5)) || [], vOut = sim.voids.get(k(1, 1));
+  ok(res.coverage === 1 && sim.h[k(5, 5)] === 10 && vIn.length === 2 && Math.abs(vIn[0]) < 1e-6 && Math.abs(vIn[1] - 4) < 1e-6, `underside pocket kept: top 10, pocket ${vIn.map(v => +v.toFixed(3))} under the middle`);
+  ok(!vOut && sim.h[k(1, 1)] === 10, 'outside the pocket the column is solid all the way down');
+  ok(res.pockets === 16 * 25, `pockets only in the pocketed 4x4 mm (${res.pockets} columns)`);
+  // the next op faces the top down to Z3 over the middle: it breaks into the pocket, nothing is left there
+  sim.cut(2, 5, 3, 8, 5, 3, { R: 0.5, kind: 0, rc: 0, r0: 0.5, slope: 0 }, 1);
+  ok(sim.h[k(5, 5)] === sim.zBot && !sim.voids.get(k(5, 5)), 'cutting down into the underside pocket leaves nothing there');
+  ok(Math.abs(sim.h[k(1.5, 5)] - 10) < 1e-6, 'and the solid part beside it is untouched');
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);

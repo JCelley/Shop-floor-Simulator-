@@ -104,10 +104,14 @@ npm test           # all suites; needs Node 18+ and Python 3 for the Fusion-side
   Up/Down keys, or the two step buttons. Edits are **live**: 600 ms after typing stops, `runCodeEdit` reloads through the
   normal path with `live: true` - same camera, stock box, cursor and scroll, sim placed on the edited line, small "Updating…"
   tag instead of the full-screen cover. Never saved; "Undo all edits" goes back to the file as opened (`S.origText`).
-- **Right panel:** the T#, tool name, operation and Restart seq # are pinned (`.now-pin`, sticky); the rest scrolls under it.
-- **2nd-op stock:** when the `.setup`'s `_STOCK.stl` is a real shape rather than a plain block (a 2nd op's leftover stock,
-  e.g. O1247), the sim starts from that shape (`stockMesh` -> `seedHeightSim(..., emptyOutside)`), seen from above. Not on
-  tri-dexel jobs (tilted planes or an undercut tool) - those still start from the block, with a warning.
+- **Right panel:** fixed T#, setup-sheet tool description, operation, Restart seq #, rpm/feed/coolant and X/Y/Z (feed and
+  position in the program's units); only the Operations list scrolls. Stock / Tools / Display / Notes (info + warnings, dot
+  when there's a warning) are menus at the top left of the view. Dark theme by default, the button's choice remembered.
+- **2nd-op stock:** when the `.setup`'s `_STOCK.stl` is a real shape rather than a plain block (a 2nd op's leftover stock),
+  the sim starts from that shape. Top-only on a flat job (`seedHeightSim(..., emptyOutside)`, O1247). If the previous op cut
+  into the **underside** (a flip job, O1253: 44% of the bottom 0.507" deep), `seedHeightSimSolid` keeps every solid span per
+  column as pockets and the job takes the tri-dexel path so they draw; tilted/undercut jobs seed their Z+ grid the same way.
+  The workholding "sinks into the stock" check tests against that real shape, with a 2 mm sideways margin (pins in holes).
 - **Restart seq #**: each op carries `seqN`, the N on its own tool-change (`G100`) line - shown as an `N25` badge and in
   the "Restart seq #" box. It equals the CSV Seq# whole number on every op checked (O1228, O1138).
 
@@ -128,8 +132,9 @@ npm test           # all suites; needs Node 18+ and Python 3 for the Fusion-side
 - Peck cycles (G73/G83) are simulated peck by peck (John asked, 2026-09-27). The re-approach clearance / G73 back-off
   (`PECK_CLEAR`, 0.5 mm) is a machine parameter we can't read - assumed. Feed shows in the program's units (in/min for
   G20 or the Brother's no-G20/G21 default, mm/min for G21). Rapids never cut. No holder/fixture collision.
-- Cycle-time estimate is rough (8.2 min vs the setup sheet's 11.4 for O1228). The post uses FEED_RATIO 0.85 and a 10 s tool
-  change; copy those if the estimate matters.
+- Cycle-time estimate (`P.estimate`) uses the post's own rules - cutting at FEED_RATIO 0.85, plus 10 s per tool change (the
+  tool-change time is kept off the playback timeline, `P.total`). O1228 11:31 vs setup sheet 11:24, O1253 2:44 vs 2:39,
+  O1247 6:44 vs 5:53 (its long peck cycle).
 
 ## Hard-won facts (each cost a wrong guess once)
 

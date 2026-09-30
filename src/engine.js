@@ -9,6 +9,9 @@ const NC = (() => {
   // Peck cycles (G73/G83): how far above the last depth the drill comes back to before feeding
   // again (and G73's chip-break back-off). A machine parameter, not in the program - assumed.
   const PECK_CLEAR = 0.5, PECK_MAX = 5000;
+  // Cycle-time rules copied from the cascading post's setup-sheet estimate (FEED_RATIO and
+  // TOOL_CHANGE_TIME in CSV_Cascade_Post_v2_7_2.cps) so the two numbers are comparable.
+  const FEED_RATIO = 0.85, TOOL_CHANGE_S = 10;
   const CC_NOTE = 'Cutter compensation (G41/G42) is treated as wear compensation: the programmed path is the tool centre, and offset values are not applied.';          // assumed rapid rate for time estimates
   // Undercut-shaped tools (wider cutting profile than the neck behind it) cannot be represented by a
   // one-height-per-column height field - see docs/NOTES.md. Detected by name only; stock removal for
@@ -611,7 +614,10 @@ const NC = (() => {
         }
         return;
       }
-      if (own && c && !/^FTL-/i.test(c)) pendingLabel = c;   // only stand-alone comment lines name an operation
+      // Only stand-alone comment lines name an operation - but not the tool tags the post writes
+      // under a tool change: (FTL-xxxx) tool life, (RTA-22) the shop's RTA number (O1253: it made a
+      // 5th op, so the 4 setup-sheet names and Seq#s stopped lining up).
+      if (own && c && !/^(FTL|RTA)-/i.test(c)) pendingLabel = c;
     };
 
     // Arcs in any plane. (u,v) is the plane, w the axis that moves helically.
@@ -785,7 +791,7 @@ const NC = (() => {
 
     // cumulative time (seconds) and bounds of cutting moves
     P.cumT = new Float64Array(n);
-    let tt = 0, px = P.init.x, py = P.init.y, pz = P.init.z;
+    let tt = 0, px = P.init.x, py = P.init.y, pz = P.init.z, toolChanges = 0;
     const b = { xmin: 1e9, xmax: -1e9, ymin: 1e9, ymax: -1e9, zmin: 1e9, zmax: -1e9 };
     const ball = { xmin: 1e9, xmax: -1e9, ymin: 1e9, ymax: -1e9, zmin: 1e9, zmax: -1e9 };
     const b0 = { xmin: 1e9, xmax: -1e9, ymin: 1e9, ymax: -1e9, zmin: 1e9, zmax: -1e9 };
@@ -796,7 +802,9 @@ const NC = (() => {
       // a meaningless cross-frame jump; this move's own end point still becomes px/py/pz below.
       const samePlane = !(P.PL && i > 0 && P.PL[i - 1] !== P.PL[i]);
       const d = samePlane ? Math.hypot(P.X[i] - px, P.Y[i] - py, P.Z[i] - pz) : 0;
-      const sp = P.K[i] ? (P.F[i] > 0 ? P.F[i] : 500) : RAPID_MMPM;
+      // Cutting at FEED_RATIO of the programmed feed, like the cascading post's setup-sheet estimate.
+      const sp = P.K[i] ? (P.F[i] > 0 ? P.F[i] : 500) * FEED_RATIO : RAPID_MMPM;
+      if (i === 0 || P.TL[i] !== P.TL[i - 1]) toolChanges++;
       tt += d / (sp / 60); P.cumT[i] = tt;
       const bb = P.K[i] ? b : ball;
       bb.xmin = Math.min(bb.xmin, P.X[i]); bb.xmax = Math.max(bb.xmax, P.X[i]);
@@ -816,7 +824,10 @@ const NC = (() => {
       // second one - the operator wants to know it's active and which D register, not a history).
       if (P.CC[i] && !P.ops[P.OP[i]].comp) { const o = P.ops[P.OP[i]]; o.comp = P.CC[i]; o.compD = P.CD[i]; }
     }
-    P.total = tt;
+    P.total = tt;   // the playback timeline: tool motion only
+    // Cycle-time estimate comparable to the setup sheet's: motion plus TOOL_CHANGE_S per tool change
+    // (kept off the timeline so a tool change doesn't show as the new tool gliding in from the old spot).
+    P.estimate = tt + toolChanges * TOOL_CHANGE_S;
     // Prefer base-plane-only bounds; fall back to every move only if the base plane somehow has none.
     P.bounds = b0.xmin <= b0.xmax ? b0 : (ball0.xmin <= ball0.xmax ? ball0 : (b.xmin <= b.xmax ? b : ball));
     P.feedBounds = b0.xmin <= b0.xmax || b.xmin <= b.xmax;
@@ -1687,6 +1698,59 @@ const NC = (() => {
     return n / touched.length;
   }
 
+  // Fill a height grid from a closed stock mesh, top AND underside: every column gets the mesh's
+  // real solid spans (ray crossings along Z, paired up), so a flipped 2nd op keeps what the 1st op
+  // cut into the bottom as pockets (HeightSim.voids) - O1253: 44% of the underside cut 0.507" deep,
+  // flat on top. A column the mesh never covers holds no material. A column with an odd number of
+  // crossings (a mesh that isn't watertight there) falls back to top-only. Returns the fraction of
+  // columns with material and how many columns got a pocket.
+  function seedHeightSimSolid(sim, pos, idx) {
+    const nx = sim.nx, ny = sim.ny, dx = sim.dx, dy = sim.dy, x0 = sim.x0, y0 = sim.y0, EPS = 1e-4;
+    const hits = new Map(), nt = idx.length / 3;
+    // sample slightly off the cell centre so a column never runs exactly along a shared mesh edge
+    const ox = 0.5 + 1.37e-3, oy = 0.5 + 2.11e-3;
+    for (let t = 0; t < nt; t++) {
+      const a = idx[t * 3] * 3, b = idx[t * 3 + 1] * 3, c = idx[t * 3 + 2] * 3;
+      const ax = pos[a], ay = pos[a + 1], az = pos[a + 2], bx = pos[b], by = pos[b + 1], bz = pos[b + 2], cx = pos[c], cy = pos[c + 1], cz = pos[c + 2];
+      const den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+      if (Math.abs(den) < 1e-12) continue;   // edge-on to Z: no crossing
+      let i0 = Math.floor((Math.min(ax, bx, cx) - x0) / dx - ox), i1 = Math.ceil((Math.max(ax, bx, cx) - x0) / dx - ox);
+      let j0 = Math.floor((Math.min(ay, by, cy) - y0) / dy - oy), j1 = Math.ceil((Math.max(ay, by, cy) - y0) / dy - oy);
+      if (i0 < 0) i0 = 0; if (j0 < 0) j0 = 0; if (i1 > nx - 1) i1 = nx - 1; if (j1 > ny - 1) j1 = ny - 1;
+      for (let j = j0; j <= j1; j++) {
+        const py = y0 + (j + oy) * dy;
+        for (let i = i0; i <= i1; i++) {
+          const px = x0 + (i + ox) * dx;
+          const wa = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / den, wb = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / den, wc = 1 - wa - wb;
+          if (wa < 0 || wb < 0 || wc < 0) continue;
+          const k = j * nx + i; let l = hits.get(k); if (!l) hits.set(k, l = []);
+          l.push(wa * az + wb * bz + wc * cz);
+        }
+      }
+    }
+    const zb = sim.zBot, zt = sim.zTop; let filled = 0, pockets = 0;
+    sim.voids = new Map();
+    for (let k = 0; k < sim.h.length; k++) {
+      const l = hits.get(k);
+      if (!l || !l.length) { sim.h[k] = zb; continue; }
+      l.sort((p, q) => p - q);
+      // merge near-duplicate crossings (a column through a vertex or edge hits two triangles)
+      const z = []; for (const v of l) if (!z.length || v - z[z.length - 1] > EPS) z.push(v);
+      if (!z.length) { sim.h[k] = zb; continue; }
+      filled++;
+      if (z.length % 2) { sim.h[k] = Math.min(zt, Math.max(zb, z[z.length - 1])); continue; }
+      sim.h[k] = Math.min(zt, Math.max(zb, z[z.length - 1]));
+      // gaps below and between the solid spans [z0,z1], [z2,z3], ...
+      // (gaps under 0.01 mm are rounding between the mesh and its own box, not real pockets)
+      const v = [], GAP = 0.01;
+      if (z[0] > zb + GAP) v.push(zb, Math.min(z[0], sim.h[k]));
+      for (let m = 1; m + 1 < z.length; m += 2) if (z[m + 1] - z[m] > GAP) v.push(Math.max(zb, z[m]), Math.min(zt, z[m + 1]));
+      if (v.length) { sim.voids.set(k, v); pockets++; }
+    }
+    sim.markAll();
+    return { coverage: filled / sim.h.length, pockets };
+  }
+
   /* ---------- sample programs ---------- */
   const fx = n => { const s = String(+n.toFixed(3)); return s.includes('.') ? s : s + '.'; };
 
@@ -1767,7 +1831,7 @@ const NC = (() => {
            HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti, undercutProfile, profileBand, undercutKind,
            planeAxisWorld, classifyPlanes, undercutOnlyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel, obliquePlaneSolid, stockField, surfaceNets, meshTriDexelSmooth,
            parseStlBinary, parseCimcoSetup, applyCimcoTools, cimcoToFloorsimSetup,
-           meshFromHeightArray, transformPoints, seedHeightSim,
+           meshFromHeightArray, transformPoints, seedHeightSim, seedHeightSimSolid,
            demoProgram, stressProgram, RAPID_MMPM };
 })();
 if (typeof module !== 'undefined') module.exports = NC;

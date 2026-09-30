@@ -401,7 +401,19 @@ const stockFromSetup = s => ({ xmin: s.xmin, xmax: s.xmax, ymin: s.ymin, ymax: s
 // {origin, x, y, z} shape NC.transformPoints expects - originMM is the already-resolved origin.
 const wcsFrame = w => ({ origin: w.originMM, x: w.x, y: w.y, z: w.z });
 // Cross-checks so a wrong placement announces itself instead of silently drawing the vise in the wrong place.
-function checkSetup(P, st, setup, chained) {
+// solid (optional): a HeightSim filled from the setup file's real stock shape (seedHeightSimSolid).
+// With it, workholding is only "in the stock" where the shape really has material - a fixture that
+// sits up inside a pocket the previous op cut into the underside (O1253) is not sinking in.
+function solidDepth(g, x, y, z) {
+  const i = Math.floor((x - g.x0) / g.dx), j = Math.floor((y - g.y0) / g.dy);
+  if (i < 0 || j < 0 || i >= g.nx || j >= g.ny) return 0;
+  const k = j * g.nx + i; let lo = g.zBot, hi = g.h[k];
+  if (z >= hi || z <= lo) return 0;
+  const v = g.voids.get(k);
+  if (v) for (let m = 0; m < v.length; m += 2) { if (z >= v[m] && z <= v[m + 1]) return 0; if (v[m + 1] <= z && v[m + 1] > lo) lo = v[m + 1]; if (v[m] >= z && v[m] < hi) hi = v[m]; }
+  return Math.min(z - lo, hi - z);
+}
+function checkSetup(P, st, setup, chained, solid) {
   const out = [];
   if (!setup) return out;
   const R = Math.max(...P.tools.map(t => t.D / 2)); let near = 0, n = 0;
@@ -423,7 +435,10 @@ function checkSetup(P, st, setup, chained) {
       const n = Math.min(24, Math.max(1, Math.ceil(Math.max(Math.hypot(p[b0] - p[a0], p[b0 + 1] - p[a0 + 1], p[b0 + 2] - p[a0 + 2]), Math.hypot(p[c0] - p[a0], p[c0 + 1] - p[a0 + 1], p[c0 + 2] - p[a0 + 2])) / 2)));
       for (let i = 0; i <= n; i++) for (let j = 0; j <= n - i; j++) {
         const s = i / n, r = j / n, w = 1 - s - r, x = w * p[a0] + s * p[b0] + r * p[c0], y = w * p[a0 + 1] + s * p[b0 + 1] + r * p[c0 + 1], z = w * p[a0 + 2] + s * p[b0 + 2] + r * p[c0 + 2];
-        const dp = Math.min(x - st.xmin, st.xmax - x, y - st.ymin, st.ymax - y, z - st.zbot, st.ztop - z);
+        let dp = Math.min(x - st.xmin, st.xmax - x, y - st.ymin, st.ymax - y, z - st.zbot, st.ztop - z);
+        // 2 mm sideways margin: a pin sitting in a drilled hole touches the hole wall, and on a grid
+        // that reads as "inside" the solid column next to it (O1253: 7.8 mm at every pin otherwise)
+        if (solid && dp > 0) for (const [ox, oy] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2]]) dp = Math.min(dp, solidDepth(solid, x + ox, y + oy, z));
         if (dp > depth) depth = dp;
       }
     }
@@ -641,7 +656,7 @@ async function loadText(text, name, opts = {}) {
     if (opts.live && S.stock) { /* keep */ } else if (opts.stock) S.stock = Object.assign({}, opts.stock); else if (setup && setup.stock) S.stock = stockFromSetup(setup.stock); else autoStock();
     fillStockInputs(); buildToolCards(); buildOps(); buildTicks(); buildPaths();
     if (setup) info.push(`Setup file "${setup.setup || 'setup'}": ${setup.stock ? 'stock box from Fusion' : 'no stock box, using a guess'}, ${(setup.fixtures || []).length} workholding part${(setup.fixtures || []).length === 1 ? '' : 's'}.`);
-    if (S.stockMesh && !chainSeed) info.push('Starting stock: the shape in the setup file (what the previous op left), seen from above.');
+    if (S.stockMesh && !chainSeed) info.push('Starting stock: the shape in the setup file (what the previous op left).');
     if (opts.exported) info.push('Job file exported ' + opts.exported.replace('T', ' ') + (opts.document ? ' from "' + opts.document + '"' : '') + '.');
     if (setup && setup.stockMode === 7) {
       if (chainSeed) info.push(`Stock seeded from the previous setup's finished result ("${chainSeed.fromName}").`);
@@ -655,12 +670,19 @@ async function loadText(text, name, opts = {}) {
       extraWarn.push(`T${t.no} (${t.ucType === 'lollipop' ? 'lollipop' : t.ucType === 'dovetail' ? 'dovetail' : 'T-slot'}): the posted files don't give its full shape, so ${what}. How far it undercuts is approximate - post with CSV_Cascade_Post v2.7.2 or later for the real shape.`);
     }
     if (opts.cimcoWarn && opts.cimcoWarn.length) extraWarn.push(...opts.cimcoWarn);
-    const lines = info.concat(P.notes), warnList = P.warnings.concat(extraWarn, checkSetup(P, S.stock, setup, !!chainSeed));
+    // The setup file's stock shape, top and underside, at a coarse grid: tells rebuild() whether the
+    // previous op cut into the bottom (a flip job - needs the path that can draw hidden pockets), and
+    // lets the workholding check test against the real shape instead of its outer box.
+    S.stockSolid = null; S.stockUnder = false;
+    if (S.stockMesh && !chainSeed) {
+      const st = S.stock, g = new NC.HeightSim({ xmin: st.xmin, xmax: st.xmax, ymin: st.ymin, ymax: st.ymax, zbot: st.zbot, ztop: st.ztop }, 200);
+      S.stockUnder = NC.seedHeightSimSolid(g, S.stockMesh.pos, S.stockMesh.idx).pockets > 0; S.stockSolid = g;
+    }
+    const lines = info.concat(P.notes), warnList = P.warnings.concat(extraWarn, checkSetup(P, S.stock, setup, !!chainSeed, S.stockSolid));
     $('warns').innerHTML = lines.map(esc).join('<br>') + (warnList.length ? (lines.length ? '<br>' : '') + '<b>Heads up</b><br>' + warnList.map(esc).join('<br>') : '');
     $('notesDot').hidden = !warnList.length;   // the Notes menu lights up when there is a real warning
     S.quietBusy = !!opts.live;   // a live edit shows a small "updating" tag, not the full-screen cover
     try { await rebuild(!opts.live); } finally { S.quietBusy = false; }
-    if (S.stockMesh && !chainSeed && S.triDexel) { $('warns').innerHTML += (warnList.length ? '<br>' : '<br><b>Heads up</b><br>') + esc('This program uses tilted planes or an undercut tool, so the starting stock is drawn as a plain block, not the shape in the setup file.'); $('notesDot').hidden = false; }
     if (chainSeed && S.chainCoverage != null && S.chainCoverage < 0.05) {
       $('warns').innerHTML += (warnList.length || lines.length ? '<br>' : '<b>Heads up</b><br>') +
         `The chained stock from "${chainSeed.fromName}" barely overlaps this setup's stock box (${Math.round(S.chainCoverage * 100)}% covered) - the two setups' WCS placements may not line up, or this pairing may be wrong.`;
@@ -916,8 +938,12 @@ async function prepass(token, sims, td) {
   if (S.chainSeed && sims.has(0)) {
     const tpos = NC.transformPoints(S.chainSeed.mesh.pos, S.chainSeed.fromWcs, S.chainSeed.toWcs);
     S.chainCoverage = NC.seedHeightSim(sims.get(0), tpos, S.chainSeed.mesh.idx);
+  } else if (S.stockMesh && td && td.grids.has('Z+')) {
+    // Start from the setup file's own stock shape, top and underside (the Z+ grid's pockets carry
+    // the underside; the side grids start full and only ever cut, so the solid is right from Z+ alone).
+    NC.seedHeightSimSolid(td.grids.get('Z+'), S.stockMesh.pos, S.stockMesh.idx);
   } else if (S.stockMesh && sims.has(0) && !td) {
-    // Start from the setup file's own stock shape (seen from above - see seedHeightSim).
+    // Flat-job path: the setup file's stock shape as seen from above (no underside cuts to keep).
     NC.seedHeightSim(sims.get(0), S.stockMesh.pos, S.stockMesh.idx, true);
   }
   // Tri-dexel's grids count toward the same fixed snapshot memory budget - on the real O1224 job
@@ -961,7 +987,8 @@ async function rebuild(fresh) {
   // An undercut tool leaves pockets under the surface, which the flat-job height-field mesh can't
   // draw - such a job takes the smooth-surface path even when it only uses the base plane.
   const usedTools = new Set(S.prog.TL);
-  S.triDexel = cls.alignedIds.size > 1 || S.tools.some(t => t.undercut && usedTools.has(t.no));
+  // ...and so does a flip job whose starting stock has the previous op's cuts on its underside.
+  S.triDexel = cls.alignedIds.size > 1 || S.tools.some(t => t.undercut && usedTools.has(t.no)) || !!(S.stockUnder && !S.chainSeed);
   // Same condition loadText() uses to pick stockFromSetup over autoStock() - reused here, not a
   // new flag. A tilted plane's own box (boxFromMoves) still needs padding around its moves when
   // there's no real stock box to bound it (we're guessing). But when a real box IS known, the
@@ -1372,7 +1399,7 @@ function updateChips(force) {
   const st = S.stats; if (!st.nx) return;
   const c = []; c.push(`grid ${st.nx}x${st.ny}, ${st.dx.toFixed(2)} mm`);
   c.push(`whole program simulated in ${(st.ms / 1000).toFixed(st.ms > 9999 ? 0 : 1)} s (${st.moves.toLocaleString()} moves)`);
-  if (S.csv && S.csv.cycleSec && S.prog) c.push(`cycle estimate ${mmss(S.prog.total)}, setup sheet ${mmss(S.csv.cycleSec)}`);
+  if (S.csv && S.csv.cycleSec && S.prog) c.push(`cycle estimate ${mmss(S.prog.estimate)}, setup sheet ${mmss(S.csv.cycleSec)}`);
   if (S.fps) c.push(`${S.fps} fps`);
   if (S.limited && S.playing) c.push('sim-limited: this device cannot keep up at this speed');
   const html = c.map((s, k) => `<span class="chip${s.startsWith('sim-limited') ? ' warn' : ''}">${esc(s)}</span>`).join('');
@@ -1410,9 +1437,13 @@ $('demoSel').onchange = e => {
   if (v === 'demo') loadText(NC.demoProgram(), 'Demo program', { stock: { xmin: -50, xmax: 50, ymin: -35, ymax: 35, zbot: -20, ztop: 0 } });
   if (v === 'stress') loadText(NC.stressProgram(), 'Stress test', { stock: { xmin: -50, xmax: 50, ymin: -50, ymax: 50, zbot: -12, ztop: 0 } });
 };
+// Dark by default (John, 2026-09-29; set on <html> so there is no light flash); the button's last
+// choice is remembered on this device.
+try { const th = localStorage.getItem('floorsim.theme'); if (th === 'light' || th === 'dark') document.documentElement.dataset.theme = th; } catch (e) { /* storage blocked */ }
 $('themeBtn').onclick = () => {
-  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
-  r.dataset.theme = dark ? 'light' : 'dark';
+  const r = document.documentElement, next = r.dataset.theme === 'dark' ? 'light' : 'dark';
+  r.dataset.theme = next;
+  try { localStorage.setItem('floorsim.theme', next); } catch (e) { /* storage blocked */ }
 };
 document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
   S.mode = b.dataset.mode;

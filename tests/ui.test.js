@@ -31,6 +31,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(d.getElementById('codeGutter').children.length > 5, 'G-code line numbers drawn');
   ok(d.querySelector('.title img.logo') && /^data:image\/webp;base64,.{1000}/.test(d.querySelector('.title img.logo').src), 'APW logo embedded in the header');
   ok(d.title === 'APW Floor Sim', 'page title: ' + d.title);
+  // dark mode is the default (John, 2026-09-29); the theme button's choice is remembered
+  ok(d.documentElement.dataset.theme === 'dark', 'the page opens in dark mode');
+  d.getElementById('themeBtn').click();
+  ok(d.documentElement.dataset.theme === 'light' && w.localStorage.getItem('floorsim.theme') === 'light', 'the theme button switches to light and remembers it');
+  d.getElementById('themeBtn').click();
+  ok(d.documentElement.dataset.theme === 'dark' && w.localStorage.getItem('floorsim.theme') === 'dark', 'and back to dark');
 
   // Ortho toggle swaps the projection, keeps the same view, and is remembered
   const proj = d.getElementById('projBtn');
