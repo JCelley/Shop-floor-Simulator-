@@ -98,6 +98,9 @@ button, select, input { font: inherit; color: inherit; }
 .menu > summary::-webkit-details-marker { display: none; }
 .menu > summary::after { content: ""; width: 0; height: 0; border: 5px solid transparent; border-top-color: currentColor; margin-top: 5px; opacity: .6; }
 .menu[open] > summary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.detail { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; }
+.detail input { width: 90px; accent-color: var(--accent); cursor: pointer; }
+.detail b { min-width: 6.2ch; font-weight: 700; color: var(--ink); }
 .menu-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--panel2); }
 .menu-dot[hidden] { display: none; }
 .menu .pop { position: absolute; left: 0; top: 46px; width: min(440px, 100%); max-height: calc(100vh - 240px); overflow-y: auto; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px 14px; box-shadow: var(--shadow); pointer-events: auto; }
@@ -294,15 +297,6 @@ label.f select { font-family: var(--font); }
               <label class="f">Program units
                 <select id="unitSel"><option value="auto">Auto</option><option value="inch">Inches</option><option value="mm">Millimetres</option></select>
               </label>
-              <label class="f">Grid resolution
-                <select id="resSel">
-                  <option value="200">Draft, 200 cells</option>
-                  <option value="280">Fast, 280 cells</option>
-                  <option value="360" selected>Balanced, 360 cells</option>
-                  <option value="520">Fine, 520 cells</option>
-                  <option value="800">Ultra, 800 cells</option>
-                </select>
-              </label>
               <div style="display:flex;align-items:end"><button class="btn primary" id="applyStock" type="button">Apply stock</button></div>
             </div>
             <p class="note">Stock box in program coordinates, shown in mm. Size comes from the setup-sheet CSV when there is one; its position is a guess from the toolpath until the Fusion setup supplies it.</p>
@@ -435,6 +429,11 @@ label.f select { font-family: var(--font); }
     <div class="speed">
       <label class="stepToggle" title="Pause at the start of each operation, and the moment cutter comp (G41/G42) turns on">
         <input id="stepMode" type="checkbox"> Step
+      </label>
+      <label class="detail" title="How fine the stock is simulated and drawn. Fine and Ultra show small holes and thin walls more accurately but take longer to prepare, especially on a Chromebook.">
+        <span>Detail</span>
+        <input id="detailSlider" type="range" min="0" max="3" step="1" value="1" aria-label="Detail: Fast, Balanced, Fine, Ultra">
+        <b id="detailTxt">Balanced</b>
       </label>
       <label for="speedSel">Speed</label>
       <select id="speedSel" class="sel">
@@ -1938,10 +1937,16 @@ const NC = (() => {
   // lighting turns it into visible lumps. One 1-2-1 pass in each direction averages the sawtooth
   // out while leaving a step edge where it was (the blur is symmetric) and flat floors untouched -
   // for DISPLAY only, the cutting grids themselves are never modified.
-  function blurHeights(h, nx, ny) {
-    const t = new Float32Array(h.length), o = new Float32Array(h.length);
-    for (let j = 0; j < ny; j++) { const r = j * nx; for (let i = 0; i < nx; i++) t[r + i] = 0.25 * (h[r + (i > 0 ? i - 1 : i)] + 2 * h[r + i] + h[r + (i < nx - 1 ? i + 1 : i)]); }
-    for (let j = 0; j < ny; j++) { const r = j * nx, u = (j > 0 ? j - 1 : j) * nx, d = (j < ny - 1 ? j + 1 : j) * nx; for (let i = 0; i < nx; i++) o[r + i] = 0.25 * (t[u + i] + 2 * t[r + i] + t[d + i]); }
+  // Edge-preserving: a neighbour only pulls a column's height if the two differ by less than
+  // `edge` (about two cells' width - the stair-steps of a slope up to ~60 degrees). Across a real
+  // wall - a hole edge, a thin rib, a pocket side - the heights differ by more, so the neighbour is
+  // ignored and the wall stays sharp. (The plain blur this replaced rounded off small holes and
+  // thin features - John, 2026-09-29: "fuzzy and less clear".)
+  function blurHeights(h, nx, ny, edge) {
+    const t = new Float32Array(h.length), o = new Float32Array(h.length), E = edge > 0 ? edge : Infinity;
+    const mix = (c, a, b) => { const wa = Math.abs(a - c) < E ? a : c, wb = Math.abs(b - c) < E ? b : c; return 0.25 * (wa + 2 * c + wb); };
+    for (let j = 0; j < ny; j++) { const r = j * nx; for (let i = 0; i < nx; i++) t[r + i] = mix(h[r + i], h[r + (i > 0 ? i - 1 : i)], h[r + (i < nx - 1 ? i + 1 : i)]); }
+    for (let j = 0; j < ny; j++) { const r = j * nx, u = (j > 0 ? j - 1 : j) * nx, d = (j < ny - 1 ? j + 1 : j) * nx; for (let i = 0; i < nx; i++) o[r + i] = mix(t[r + i], t[u + i], t[d + i]); }
     return o;
   }
 
@@ -1949,11 +1954,11 @@ const NC = (() => {
     const box = td.box;
     const al = [...td.grids.entries()].map(([key, g]) => {
       const a = arrays && arrays.get(key);
-      return { g, axis: 'XYZ'.indexOf(key[0]), sign: key[1] === '+' ? 1 : -1, h: blurHeights(a ? a.h : g.h, g.nx, g.ny), op: a ? a.op : g.op, vd: (a ? a.voids : g.voids) || new Map() };
+      return { g, axis: 'XYZ'.indexOf(key[0]), sign: key[1] === '+' ? 1 : -1, h: blurHeights(a ? a.h : g.h, g.nx, g.ny, 2 * Math.max(g.dx, g.dy)), op: a ? a.op : g.op, vd: (a ? a.voids : g.voids) || new Map() };
     });
     const ob = obliqueSims ? [...obliqueSims.entries()].map(([id, sim]) => {
       const a = arrays && arrays.get('p' + id), p = planeById.get(id);
-      return { g: sim, m: p.matrix, o: p.origin, h: blurHeights(a ? a.h : sim.h, sim.nx, sim.ny), op: a ? a.op : sim.op, vd: (a ? a.voids : sim.voids) || new Map() };
+      return { g: sim, m: p.matrix, o: p.origin, h: blurHeights(a ? a.h : sim.h, sim.nx, sim.ny, 2 * Math.max(sim.dx, sim.dy)), op: a ? a.op : sim.op, vd: (a ? a.voids : sim.voids) || new Map() };
     }) : [];
     let lastOp = 0;   // op id of the grid that set the most recent value() result (0 = original stock face)
     // Bilinear height between the four nearest cell centres; also records the nearest cell's op and
@@ -2058,16 +2063,23 @@ const NC = (() => {
     // Shading uses a wider gradient (normalEps): a wall running at an angle to a height grid can
     // only change height at cell centres, so it carries tiny cell-sized steps along its length -
     // harmless to the shape, but a tight gradient lights every one of them up as a vertical ridge.
-    const P = Float32Array.from(pos), nor = new Float32Array(P.length), eps = c * 0.5, cap = c * 0.5, ne = Math.max(c, field.normalEps || 0);
+    // (Narrowed 2026-09-29 from max(c, 2 fine cells): the wide gradient shaded every hole rim and
+    // thin wall as rounded - the "fuzzy" look. The edge-preserving blur now takes care of the steps.)
+    const P = Float32Array.from(pos), nor = new Float32Array(P.length), eps = c * 0.5, cap = c * 0.5, ne = Math.max(c * 0.5, (field.normalEps || 0) * 0.5);
     const grad = (x, y, z, e) => [(fv(x + e, y, z) - fv(x - e, y, z)) / (2 * e), (fv(x, y + e, z) - fv(x, y - e, z)) / (2 * e), (fv(x, y, z + e) - fv(x, y, z - e)) / (2 * e)];
     for (let q = 0; q < P.length; q += 3) {
       let x = P[q], y = P[q + 1], z = P[q + 2];
-      const [gx, gy, gz] = grad(x, y, z, eps), g2 = gx * gx + gy * gy + gz * gz;
-      if (g2 > 1e-8) {
-        const s = fv(x, y, z) / g2; let sx = s * gx, sy = s * gy, sz = s * gz;
+      // up to three steps (each capped at half a cell): a sharp outside corner - kept sharp now
+      // that the blur no longer rounds it - needs more than one to land back on the surface
+      for (let it = 0; it < 3; it++) {
+        const f0 = fv(x, y, z); if (Math.abs(f0) < 1e-4) break;
+        const [gx, gy, gz] = grad(x, y, z, eps), g2 = gx * gx + gy * gy + gz * gz;
+        if (g2 <= 1e-8) break;
+        const s = f0 / g2; let sx = s * gx, sy = s * gy, sz = s * gz;
         const sl = Math.hypot(sx, sy, sz); if (sl > cap) { sx *= cap / sl; sy *= cap / sl; sz *= cap / sl; }
-        P[q] = x -= sx; P[q + 1] = y -= sy; P[q + 2] = z -= sz;
+        x -= sx; y -= sy; z -= sz;
       }
+      P[q] = x; P[q + 1] = y; P[q + 2] = z;
       const [nx, ny, nz] = grad(x, y, z, ne), l = Math.hypot(nx, ny, nz) || 1;
       nor[q] = -nx / l; nor[q + 1] = -ny / l; nor[q + 2] = -nz / l;
     }
@@ -2308,7 +2320,7 @@ const NC = (() => {
 
   return { parseProgram, completeTool, simTool, prof, holderSegments, applyLibrary, typeFromText, parseSetupCsv, applyCsvTools, unzipText, guessFromName,
            HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti, undercutProfile, profileBand, undercutKind,
-           planeAxisWorld, classifyPlanes, undercutOnlyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel, obliquePlaneSolid, stockField, surfaceNets, meshTriDexelSmooth,
+           planeAxisWorld, classifyPlanes, undercutOnlyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel, obliquePlaneSolid, stockField, surfaceNets, meshTriDexelSmooth, blurHeights,
            parseStlBinary, parseCimcoSetup, applyCimcoTools, cimcoToFloorsimSetup,
            meshFromHeightArray, transformPoints, seedHeightSim, seedHeightSimSolid,
            demoProgram, stressProgram, RAPID_MMPM };
@@ -2336,7 +2348,18 @@ const BLUE = [0.24, 0.48, 1.0], GREEN = [0.21, 0.77, 0.39], NEUTRAL = [0.62, 0.6
 // 64k triangles, which is the sweet spot on the measured curve (50 -> 9.3ms/24k, 60 -> 10.5ms/36k,
 // 80 -> 11.3ms/64k, 100 -> 20.8ms/98k, 140 -> 53.9ms/194k: 80 buys nearly triple the detail of 50
 // for ~2ms, because the cost is dominated by occupancy sampling, not triangle emission).
-const TRI_FUSE_TARGET = 140, TRI_FUSE_LIVE = 80;
+// The Detail slider (John, 2026-09-29) sets both: the cutting grid (cells on the stock's long side)
+// and the smooth mesh drawn from it (mesh = paused/finished picture, live = during playback).
+// Measured on this PC (a Chromebook is roughly 3-4x slower): the paused mesh for real O1253 takes
+// 64 ms at 140, 114 at 200, 207 at 280; for the much bigger O1224 360 / 822 / 1979 ms.
+const DETAIL = [
+  { name: 'Fast', grid: 280, mesh: 120, live: 70 },
+  { name: 'Balanced', grid: 360, mesh: 170, live: 90 },
+  { name: 'Fine', grid: 520, mesh: 240, live: 110 },
+  { name: 'Ultra', grid: 800, mesh: 320, live: 130 },
+];
+const TRI_FUSE_TARGET = 140, TRI_FUSE_LIVE = 80;   // (defaults; the slider's level is what's used)
+const MESH_BUDGET_MS = 450, LIVE_BUDGET_MS = 90;   // longest a paused / live redraw may take before detail steps down
 // Floor on the gap between live re-fuses. At 11ms a fuse that's ~7% of the budget on this desktop;
 // a ~4x slower Chromebook lands near 30%, which the existing "sim-limited" chip already surfaces
 // if the device genuinely can't keep up.
@@ -2355,7 +2378,7 @@ const TRI_DEXEL_TOL_DEG = 5;
 
 const S = {
   prog: null, name: '', tools: [], simTools: new Map(), sim: null, sims: new Map(), planes: new Map(), snaps: [], finalH: null, finalOp: null,
-  tau: 0, cur: { i: 0, f: 0 }, playing: false, speed: 30, pendingSeek: null, mode: 'progress', res: 360,
+  tau: 0, cur: { i: 0, f: 0 }, playing: false, speed: 30, pendingSeek: null, mode: 'progress', res: 360, detail: 1,
   token: 0, ready: false, curOp: -1, limited: false, stats: {}, needsRender: true, stock: null,
   path: 'op', rapids: false, holder: true, ghost: true, hudTool: -1, hudLine: -1, toolsDirty: false, setup: null, fixtures: true, stepMode: false,
   lastChainable: null, chainSeed: null, chainCoverage: null, partMesh: null,
@@ -3222,7 +3245,16 @@ function refreshTriStock(live) {
   if (!S.triDirty && S.triFuseLive === live) return;          // nothing changed and same quality
   // S.sims here holds exactly the oblique fallback plane(s) (see rebuild()) - ANDed into the same
   // smooth surface instead of being drawn as their own separate TILT_ROOT slabs.
-  const m = NC.meshTriDexelSmooth(S.td, live ? TRI_FUSE_LIVE : TRI_FUSE_TARGET, S.sims, S.planeById);
+  // Mesh detail from the slider, scaled down automatically if this device + job is too slow for it
+  // (S.meshScale / S.liveScale, reset on each new program or slider change): a paused picture may
+  // take up to MESH_BUDGET_MS, a live refresh up to LIVE_BUDGET_MS. Small jobs keep full detail;
+  // a big 3+2 job on a Chromebook steps down instead of freezing for seconds at every pause.
+  const lv = DETAIL[S.detail] || {}, sc = live ? S.liveScale || 1 : S.meshScale || 1;
+  const t0 = performance.now();
+  const m = NC.meshTriDexelSmooth(S.td, Math.max(50, Math.round((live ? (lv.live || TRI_FUSE_LIVE) : (lv.mesh || TRI_FUSE_TARGET)) * sc)), S.sims, S.planeById);
+  const took = performance.now() - t0, budget = live ? LIVE_BUDGET_MS : MESH_BUDGET_MS;
+  // mesh cost grows roughly with the square of the detail, so step by the square root of the overrun
+  if (took > budget) { const f = Math.max(0.5, Math.sqrt(budget / took)); if (live) S.liveScale = Math.max(0.4, sc * f); else S.meshScale = Math.max(0.4, sc * f); }
   const col = triColours(m);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(m.pos, 3));
@@ -3292,6 +3324,7 @@ async function prepass(token, sims, td) {
 }
 async function rebuild(fresh) {
   const token = ++S.token; S.ready = false; S.playing = false; updatePlay(); hideProbe();
+  if (fresh) { S.meshScale = 1; S.liveScale = 1; }   // a new program gets full detail again
   const box = readStockInputs();
   if (!box) { toast('Check the stock box: each max must be larger than its min.'); hideBusy(); return; }
   S.stock = box;
@@ -3785,7 +3818,16 @@ $('bNext').onclick = () => { if (S.ready) goToOp(Math.min(S.curOp + 1, S.prog.op
 $('bPrev').onclick = () => { if (S.ready) goToOp(S.tau - opStart(S.curOp) > 1.5 ? S.curOp : Math.max(0, S.curOp - 1)); };
 $('speedSel').onchange = e => { S.speed = +e.target.value; };
 $('stepMode').onchange = e => { S.stepMode = e.target.checked; };
-$('resSel').onchange = e => { S.res = +e.target.value; if (S.prog) rebuild(false); };
+// Detail slider: remembered on this device; takes effect when released (a re-simulation).
+function setDetail(d, rerun) {
+  S.detail = clamp(Math.round(d), 0, DETAIL.length - 1); S.res = DETAIL[S.detail].grid; S.meshScale = 1; S.liveScale = 1;
+  $('detailSlider').value = String(S.detail); setText($('detailTxt'), DETAIL[S.detail].name);
+  try { localStorage.setItem('floorsim.detail', String(S.detail)); } catch (e) { /* storage blocked */ }
+  if (rerun && S.prog) rebuild(false);
+}
+{ let d = 1; try { const v = localStorage.getItem('floorsim.detail'); if (v !== null && isFinite(+v)) d = +v; } catch (e) { /* storage blocked */ } setDetail(d, false); }
+$('detailSlider').addEventListener('input', () => setText($('detailTxt'), DETAIL[+$('detailSlider').value].name));
+$('detailSlider').addEventListener('change', () => setDetail(+$('detailSlider').value, true));
 $('applyStock').onclick = () => { if (S.prog) rebuild(false); };
 $('applyTools').onclick = () => { if (!S.prog) return; S.tools.forEach(NC.completeTool); $('applyTools').classList.remove('primary'); buildToolCards(); rebuild(false); };
 $('pathSel').onchange = e => { S.path = e.target.value; applyPaths(); };

@@ -1479,10 +1479,16 @@ const NC = (() => {
   // lighting turns it into visible lumps. One 1-2-1 pass in each direction averages the sawtooth
   // out while leaving a step edge where it was (the blur is symmetric) and flat floors untouched -
   // for DISPLAY only, the cutting grids themselves are never modified.
-  function blurHeights(h, nx, ny) {
-    const t = new Float32Array(h.length), o = new Float32Array(h.length);
-    for (let j = 0; j < ny; j++) { const r = j * nx; for (let i = 0; i < nx; i++) t[r + i] = 0.25 * (h[r + (i > 0 ? i - 1 : i)] + 2 * h[r + i] + h[r + (i < nx - 1 ? i + 1 : i)]); }
-    for (let j = 0; j < ny; j++) { const r = j * nx, u = (j > 0 ? j - 1 : j) * nx, d = (j < ny - 1 ? j + 1 : j) * nx; for (let i = 0; i < nx; i++) o[r + i] = 0.25 * (t[u + i] + 2 * t[r + i] + t[d + i]); }
+  // Edge-preserving: a neighbour only pulls a column's height if the two differ by less than
+  // `edge` (about two cells' width - the stair-steps of a slope up to ~60 degrees). Across a real
+  // wall - a hole edge, a thin rib, a pocket side - the heights differ by more, so the neighbour is
+  // ignored and the wall stays sharp. (The plain blur this replaced rounded off small holes and
+  // thin features - John, 2026-09-29: "fuzzy and less clear".)
+  function blurHeights(h, nx, ny, edge) {
+    const t = new Float32Array(h.length), o = new Float32Array(h.length), E = edge > 0 ? edge : Infinity;
+    const mix = (c, a, b) => { const wa = Math.abs(a - c) < E ? a : c, wb = Math.abs(b - c) < E ? b : c; return 0.25 * (wa + 2 * c + wb); };
+    for (let j = 0; j < ny; j++) { const r = j * nx; for (let i = 0; i < nx; i++) t[r + i] = mix(h[r + i], h[r + (i > 0 ? i - 1 : i)], h[r + (i < nx - 1 ? i + 1 : i)]); }
+    for (let j = 0; j < ny; j++) { const r = j * nx, u = (j > 0 ? j - 1 : j) * nx, d = (j < ny - 1 ? j + 1 : j) * nx; for (let i = 0; i < nx; i++) o[r + i] = mix(t[r + i], t[u + i], t[d + i]); }
     return o;
   }
 
@@ -1490,11 +1496,11 @@ const NC = (() => {
     const box = td.box;
     const al = [...td.grids.entries()].map(([key, g]) => {
       const a = arrays && arrays.get(key);
-      return { g, axis: 'XYZ'.indexOf(key[0]), sign: key[1] === '+' ? 1 : -1, h: blurHeights(a ? a.h : g.h, g.nx, g.ny), op: a ? a.op : g.op, vd: (a ? a.voids : g.voids) || new Map() };
+      return { g, axis: 'XYZ'.indexOf(key[0]), sign: key[1] === '+' ? 1 : -1, h: blurHeights(a ? a.h : g.h, g.nx, g.ny, 2 * Math.max(g.dx, g.dy)), op: a ? a.op : g.op, vd: (a ? a.voids : g.voids) || new Map() };
     });
     const ob = obliqueSims ? [...obliqueSims.entries()].map(([id, sim]) => {
       const a = arrays && arrays.get('p' + id), p = planeById.get(id);
-      return { g: sim, m: p.matrix, o: p.origin, h: blurHeights(a ? a.h : sim.h, sim.nx, sim.ny), op: a ? a.op : sim.op, vd: (a ? a.voids : sim.voids) || new Map() };
+      return { g: sim, m: p.matrix, o: p.origin, h: blurHeights(a ? a.h : sim.h, sim.nx, sim.ny, 2 * Math.max(sim.dx, sim.dy)), op: a ? a.op : sim.op, vd: (a ? a.voids : sim.voids) || new Map() };
     }) : [];
     let lastOp = 0;   // op id of the grid that set the most recent value() result (0 = original stock face)
     // Bilinear height between the four nearest cell centres; also records the nearest cell's op and
@@ -1599,16 +1605,23 @@ const NC = (() => {
     // Shading uses a wider gradient (normalEps): a wall running at an angle to a height grid can
     // only change height at cell centres, so it carries tiny cell-sized steps along its length -
     // harmless to the shape, but a tight gradient lights every one of them up as a vertical ridge.
-    const P = Float32Array.from(pos), nor = new Float32Array(P.length), eps = c * 0.5, cap = c * 0.5, ne = Math.max(c, field.normalEps || 0);
+    // (Narrowed 2026-09-29 from max(c, 2 fine cells): the wide gradient shaded every hole rim and
+    // thin wall as rounded - the "fuzzy" look. The edge-preserving blur now takes care of the steps.)
+    const P = Float32Array.from(pos), nor = new Float32Array(P.length), eps = c * 0.5, cap = c * 0.5, ne = Math.max(c * 0.5, (field.normalEps || 0) * 0.5);
     const grad = (x, y, z, e) => [(fv(x + e, y, z) - fv(x - e, y, z)) / (2 * e), (fv(x, y + e, z) - fv(x, y - e, z)) / (2 * e), (fv(x, y, z + e) - fv(x, y, z - e)) / (2 * e)];
     for (let q = 0; q < P.length; q += 3) {
       let x = P[q], y = P[q + 1], z = P[q + 2];
-      const [gx, gy, gz] = grad(x, y, z, eps), g2 = gx * gx + gy * gy + gz * gz;
-      if (g2 > 1e-8) {
-        const s = fv(x, y, z) / g2; let sx = s * gx, sy = s * gy, sz = s * gz;
+      // up to three steps (each capped at half a cell): a sharp outside corner - kept sharp now
+      // that the blur no longer rounds it - needs more than one to land back on the surface
+      for (let it = 0; it < 3; it++) {
+        const f0 = fv(x, y, z); if (Math.abs(f0) < 1e-4) break;
+        const [gx, gy, gz] = grad(x, y, z, eps), g2 = gx * gx + gy * gy + gz * gz;
+        if (g2 <= 1e-8) break;
+        const s = f0 / g2; let sx = s * gx, sy = s * gy, sz = s * gz;
         const sl = Math.hypot(sx, sy, sz); if (sl > cap) { sx *= cap / sl; sy *= cap / sl; sz *= cap / sl; }
-        P[q] = x -= sx; P[q + 1] = y -= sy; P[q + 2] = z -= sz;
+        x -= sx; y -= sy; z -= sz;
       }
+      P[q] = x; P[q + 1] = y; P[q + 2] = z;
       const [nx, ny, nz] = grad(x, y, z, ne), l = Math.hypot(nx, ny, nz) || 1;
       nor[q] = -nx / l; nor[q + 1] = -ny / l; nor[q + 2] = -nz / l;
     }
@@ -1849,7 +1862,7 @@ const NC = (() => {
 
   return { parseProgram, completeTool, simTool, prof, holderSegments, applyLibrary, typeFromText, parseSetupCsv, applyCsvTools, unzipText, guessFromName,
            HeightSim, cutMove, boxFromMoves, buildPlaneSims, cutMoveMulti, undercutProfile, profileBand, undercutKind,
-           planeAxisWorld, classifyPlanes, undercutOnlyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel, obliquePlaneSolid, stockField, surfaceNets, meshTriDexelSmooth,
+           planeAxisWorld, classifyPlanes, undercutOnlyPlanes, worldizeMoves, buildTriDexel, cutTriDexelMove, fuseTriDexel, obliquePlaneSolid, stockField, surfaceNets, meshTriDexelSmooth, blurHeights,
            parseStlBinary, parseCimcoSetup, applyCimcoTools, cimcoToFloorsimSetup,
            meshFromHeightArray, transformPoints, seedHeightSim, seedHeightSimSolid,
            demoProgram, stressProgram, RAPID_MMPM };

@@ -17,7 +17,18 @@ const BLUE = [0.24, 0.48, 1.0], GREEN = [0.21, 0.77, 0.39], NEUTRAL = [0.62, 0.6
 // 64k triangles, which is the sweet spot on the measured curve (50 -> 9.3ms/24k, 60 -> 10.5ms/36k,
 // 80 -> 11.3ms/64k, 100 -> 20.8ms/98k, 140 -> 53.9ms/194k: 80 buys nearly triple the detail of 50
 // for ~2ms, because the cost is dominated by occupancy sampling, not triangle emission).
-const TRI_FUSE_TARGET = 140, TRI_FUSE_LIVE = 80;
+// The Detail slider (John, 2026-09-29) sets both: the cutting grid (cells on the stock's long side)
+// and the smooth mesh drawn from it (mesh = paused/finished picture, live = during playback).
+// Measured on this PC (a Chromebook is roughly 3-4x slower): the paused mesh for real O1253 takes
+// 64 ms at 140, 114 at 200, 207 at 280; for the much bigger O1224 360 / 822 / 1979 ms.
+const DETAIL = [
+  { name: 'Fast', grid: 280, mesh: 120, live: 70 },
+  { name: 'Balanced', grid: 360, mesh: 170, live: 90 },
+  { name: 'Fine', grid: 520, mesh: 240, live: 110 },
+  { name: 'Ultra', grid: 800, mesh: 320, live: 130 },
+];
+const TRI_FUSE_TARGET = 140, TRI_FUSE_LIVE = 80;   // (defaults; the slider's level is what's used)
+const MESH_BUDGET_MS = 450, LIVE_BUDGET_MS = 90;   // longest a paused / live redraw may take before detail steps down
 // Floor on the gap between live re-fuses. At 11ms a fuse that's ~7% of the budget on this desktop;
 // a ~4x slower Chromebook lands near 30%, which the existing "sim-limited" chip already surfaces
 // if the device genuinely can't keep up.
@@ -36,7 +47,7 @@ const TRI_DEXEL_TOL_DEG = 5;
 
 const S = {
   prog: null, name: '', tools: [], simTools: new Map(), sim: null, sims: new Map(), planes: new Map(), snaps: [], finalH: null, finalOp: null,
-  tau: 0, cur: { i: 0, f: 0 }, playing: false, speed: 30, pendingSeek: null, mode: 'progress', res: 360,
+  tau: 0, cur: { i: 0, f: 0 }, playing: false, speed: 30, pendingSeek: null, mode: 'progress', res: 360, detail: 1,
   token: 0, ready: false, curOp: -1, limited: false, stats: {}, needsRender: true, stock: null,
   path: 'op', rapids: false, holder: true, ghost: true, hudTool: -1, hudLine: -1, toolsDirty: false, setup: null, fixtures: true, stepMode: false,
   lastChainable: null, chainSeed: null, chainCoverage: null, partMesh: null,
@@ -903,7 +914,16 @@ function refreshTriStock(live) {
   if (!S.triDirty && S.triFuseLive === live) return;          // nothing changed and same quality
   // S.sims here holds exactly the oblique fallback plane(s) (see rebuild()) - ANDed into the same
   // smooth surface instead of being drawn as their own separate TILT_ROOT slabs.
-  const m = NC.meshTriDexelSmooth(S.td, live ? TRI_FUSE_LIVE : TRI_FUSE_TARGET, S.sims, S.planeById);
+  // Mesh detail from the slider, scaled down automatically if this device + job is too slow for it
+  // (S.meshScale / S.liveScale, reset on each new program or slider change): a paused picture may
+  // take up to MESH_BUDGET_MS, a live refresh up to LIVE_BUDGET_MS. Small jobs keep full detail;
+  // a big 3+2 job on a Chromebook steps down instead of freezing for seconds at every pause.
+  const lv = DETAIL[S.detail] || {}, sc = live ? S.liveScale || 1 : S.meshScale || 1;
+  const t0 = performance.now();
+  const m = NC.meshTriDexelSmooth(S.td, Math.max(50, Math.round((live ? (lv.live || TRI_FUSE_LIVE) : (lv.mesh || TRI_FUSE_TARGET)) * sc)), S.sims, S.planeById);
+  const took = performance.now() - t0, budget = live ? LIVE_BUDGET_MS : MESH_BUDGET_MS;
+  // mesh cost grows roughly with the square of the detail, so step by the square root of the overrun
+  if (took > budget) { const f = Math.max(0.5, Math.sqrt(budget / took)); if (live) S.liveScale = Math.max(0.4, sc * f); else S.meshScale = Math.max(0.4, sc * f); }
   const col = triColours(m);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(m.pos, 3));
@@ -973,6 +993,7 @@ async function prepass(token, sims, td) {
 }
 async function rebuild(fresh) {
   const token = ++S.token; S.ready = false; S.playing = false; updatePlay(); hideProbe();
+  if (fresh) { S.meshScale = 1; S.liveScale = 1; }   // a new program gets full detail again
   const box = readStockInputs();
   if (!box) { toast('Check the stock box: each max must be larger than its min.'); hideBusy(); return; }
   S.stock = box;
@@ -1466,7 +1487,16 @@ $('bNext').onclick = () => { if (S.ready) goToOp(Math.min(S.curOp + 1, S.prog.op
 $('bPrev').onclick = () => { if (S.ready) goToOp(S.tau - opStart(S.curOp) > 1.5 ? S.curOp : Math.max(0, S.curOp - 1)); };
 $('speedSel').onchange = e => { S.speed = +e.target.value; };
 $('stepMode').onchange = e => { S.stepMode = e.target.checked; };
-$('resSel').onchange = e => { S.res = +e.target.value; if (S.prog) rebuild(false); };
+// Detail slider: remembered on this device; takes effect when released (a re-simulation).
+function setDetail(d, rerun) {
+  S.detail = clamp(Math.round(d), 0, DETAIL.length - 1); S.res = DETAIL[S.detail].grid; S.meshScale = 1; S.liveScale = 1;
+  $('detailSlider').value = String(S.detail); setText($('detailTxt'), DETAIL[S.detail].name);
+  try { localStorage.setItem('floorsim.detail', String(S.detail)); } catch (e) { /* storage blocked */ }
+  if (rerun && S.prog) rebuild(false);
+}
+{ let d = 1; try { const v = localStorage.getItem('floorsim.detail'); if (v !== null && isFinite(+v)) d = +v; } catch (e) { /* storage blocked */ } setDetail(d, false); }
+$('detailSlider').addEventListener('input', () => setText($('detailTxt'), DETAIL[+$('detailSlider').value].name));
+$('detailSlider').addEventListener('change', () => setDetail(+$('detailSlider').value, true));
 $('applyStock').onclick = () => { if (S.prog) rebuild(false); };
 $('applyTools').onclick = () => { if (!S.prog) return; S.tools.forEach(NC.completeTool); $('applyTools').classList.remove('primary'); buildToolCards(); rebuild(false); };
 $('pathSel').onchange = e => { S.path = e.target.value; applyPaths(); };

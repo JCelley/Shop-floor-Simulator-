@@ -31,6 +31,17 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(d.getElementById('codeGutter').children.length > 5, 'G-code line numbers drawn');
   ok(d.querySelector('.title img.logo') && /^data:image\/webp;base64,.{1000}/.test(d.querySelector('.title img.logo').src), 'APW logo embedded in the header');
   ok(d.title === 'APW Floor Sim', 'page title: ' + d.title);
+  // Detail slider (John, 2026-09-29): Balanced by default; moving it re-simulates at that grid size
+  {
+    const sl = d.getElementById('detailSlider');
+    ok(!!sl && sl.value === '1' && d.getElementById('detailTxt').textContent === 'Balanced' && S.res === 360, 'Detail slider starts on Balanced (360-cell grid)');
+    ok(!d.getElementById('resSel'), 'the old grid-resolution dropdown is gone from the Stock menu');
+    sl.value = '2'; sl.dispatchEvent(new w.Event('input')); sl.dispatchEvent(new w.Event('change'));
+    for (let i = 0; i < 200 && !(S.ready && S.stats.nx >= 500); i++) await sleep(50);
+    ok(S.res === 520 && S.stats.nx === 520 && d.getElementById('detailTxt').textContent === 'Fine' && w.localStorage.getItem('floorsim.detail') === '2', `Fine re-simulates on a ${S.stats.nx}-cell grid and is remembered`);
+    sl.value = '1'; sl.dispatchEvent(new w.Event('change'));
+    for (let i = 0; i < 200 && !(S.ready && S.stats.nx === 360); i++) await sleep(50);
+  }
   // dark mode is the default (John, 2026-09-29); the theme button's choice is remembered
   ok(d.documentElement.dataset.theme === 'dark', 'the page opens in dark mode');
   d.getElementById('themeBtn').click();

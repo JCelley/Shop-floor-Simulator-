@@ -87,7 +87,12 @@ npm test           # all suites; needs Node 18+ and Python 3 for the Fusion-side
   far off-axis. Shape comes from the post's `TOOLGEOM` line (`applyUndercutGeometry`); without it, the neck/head size is a
   labelled guess with a warning. A job with an undercut tool or several aligned planes uses the tri-dexel path.
 - **Smooth surface (tri-dexel jobs):** `stockField` makes a continuous solid from all grids, `surfaceNets` meshes it; progress
-  colours compare the live and final field at the same point. Faint streaks and a slightly wavy lip remain.
+  colours compare the live and final field at the same point. The display blur is edge-preserving (`blurHeights(..., edge)`:
+  only steps under 2 cells blend, so hole walls and thin ribs stay sharp); normals use a narrow gradient; vertices take up to
+  3 capped Newton steps onto the surface. Faint vertical streaks remain on walls.
+- **Detail slider** (bottom bar, next to Speed; remembered per device): Fast / Balanced / Fine / Ultra sets the cutting grid
+  (280/360/520/800 cells) and the smooth-mesh detail (`DETAIL` in app.js). The mesh steps its own detail down if a redraw
+  runs over `MESH_BUDGET_MS` (paused) / `LIVE_BUDGET_MS` (playing) on that device - big 3+2 jobs on a Chromebook stay usable.
 - **Playback:** the whole program is simulated once up front (progress bar), storing snapshots and the final surface;
   colours compare the live surface with the final one. Scrubbing restores the nearest snapshot then re-cuts forward.
 - **Per-frame budget:** playback advances within ~9 ms of simulation per frame and shows a "sim-limited" chip if the device

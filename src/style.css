@@ -88,6 +88,9 @@ button, select, input { font: inherit; color: inherit; }
 .menu > summary::-webkit-details-marker { display: none; }
 .menu > summary::after { content: ""; width: 0; height: 0; border: 5px solid transparent; border-top-color: currentColor; margin-top: 5px; opacity: .6; }
 .menu[open] > summary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.detail { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; }
+.detail input { width: 90px; accent-color: var(--accent); cursor: pointer; }
+.detail b { min-width: 6.2ch; font-weight: 700; color: var(--ink); }
 .menu-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--panel2); }
 .menu-dot[hidden] { display: none; }
 .menu .pop { position: absolute; left: 0; top: 46px; width: min(440px, 100%); max-height: calc(100vh - 240px); overflow-y: auto; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px 14px; box-shadow: var(--shadow); pointer-events: auto; }

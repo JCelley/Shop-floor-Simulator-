@@ -329,8 +329,14 @@ M30`);
   for (let i = 0; i < P.n; i++) NC.cutTriDexelMove(td, P, simTools, i, 0, 1);
   const m = NC.meshTriDexelSmooth(td, 100, new Map(), new Map());
   ok(m.idx.length > 0 && m.nor.length === m.pos.length, `smooth mesh built (${m.idx.length / 3} triangles, one normal per vertex)`);
-  let worst = 0; const errs = [];
-  for (let q = 0; q < m.pos.length; q += 3) { const f = Math.abs(m.field.value(m.pos[q], m.pos[q + 1], m.pos[q + 2])); errs.push(f); if (f > worst) worst = f; }
+  // distance to the surface ~ |value| / |gradient|: the field is a height difference, so at a wall
+  // (kept sharp since 2026-09-29) a vertex a hair to the side reads the whole wall height in value
+  let worst = 0; const errs = [], fv = m.field.value, e = 0.05;
+  for (let q = 0; q < m.pos.length; q += 3) {
+    const x = m.pos[q], y = m.pos[q + 1], z = m.pos[q + 2], v = fv(x, y, z);
+    const g = Math.hypot(fv(x + e, y, z) - fv(x - e, y, z), fv(x, y + e, z) - fv(x, y - e, z), fv(x, y, z + e) - fv(x, y, z - e)) / (2 * e);
+    const f = Math.abs(v) / Math.max(1, g); errs.push(f); if (f > worst) worst = f;
+  }
   errs.sort((a, b) => a - b);
   const cellSm = m.cell, med = errs[Math.floor(errs.length / 2)], p95 = errs[Math.floor(errs.length * 0.95)];
   ok(med < 0.005, `typical vertex sits on the stock surface (median off by ${med.toFixed(4)} mm)`);
@@ -352,6 +358,19 @@ M30`);
   const cell = Math.max(tdR.box.xmax - tdR.box.xmin, tdR.box.ymax - tdR.box.ymin, tdR.box.zmax - tdR.box.zmin) / 60;
   let inside = true; for (let q = 0; q < mr.pos.length; q += 3) { const [x, y, z] = [mr.pos[q], mr.pos[q + 1], mr.pos[q + 2]]; if (x < tdR.box.xmin - cell || x > tdR.box.xmax + cell || y < tdR.box.ymin - cell || y > tdR.box.ymax + cell || z < tdR.box.zmin - cell || z > tdR.box.zmax + cell) inside = false; }
   ok(mr.idx.length > 1000 && inside, `real O1224 smooth mesh: ${mr.idx.length / 3} triangles, all inside the shared box`);
+}
+
+// ---- the display smoothing keeps real edges sharp (John, 2026-09-29: "fuzzy and less clear"): a
+// row of heights with a small slope step (0.3 mm per cell - stair-stepping) and a 5 mm wall (a hole
+// edge). Cells 1 mm wide, edge threshold 2 mm: the small steps blend, the wall does not move.
+{
+  const row = [0, 0.3, 0.6, 0.9, 1.2, -3.8, -3.8, -3.8, -3.8, -3.8], nx = row.length, ny = 3;
+  const h = new Float32Array(nx * ny); for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) h[j * nx + i] = row[i];
+  const o = NC.blurHeights(h, nx, ny, 2), r = j => o[nx + j];
+  ok(Math.abs(r(4) - 1.125) < 1e-6 && Math.abs(r(5) + 3.8) < 1e-6, `wall kept sharp: top edge ${r(4).toFixed(3)} (only its slope neighbour blends in), wall foot ${r(5).toFixed(3)}`);
+  ok(Math.abs(r(2) - 0.6) < 1e-6, 'an even slope stays exactly where it is');
+  const plain = NC.blurHeights(h, nx, ny);
+  ok(plain[nx + 5] > -3.8 + 1, `without the edge threshold the wall foot would be dragged up to ${plain[nx + 5].toFixed(2)} (the old fuzzy look)`);
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');

@@ -63,15 +63,6 @@
               <label class="f">Program units
                 <select id="unitSel"><option value="auto">Auto</option><option value="inch">Inches</option><option value="mm">Millimetres</option></select>
               </label>
-              <label class="f">Grid resolution
-                <select id="resSel">
-                  <option value="200">Draft, 200 cells</option>
-                  <option value="280">Fast, 280 cells</option>
-                  <option value="360" selected>Balanced, 360 cells</option>
-                  <option value="520">Fine, 520 cells</option>
-                  <option value="800">Ultra, 800 cells</option>
-                </select>
-              </label>
               <div style="display:flex;align-items:end"><button class="btn primary" id="applyStock" type="button">Apply stock</button></div>
             </div>
             <p class="note">Stock box in program coordinates, shown in mm. Size comes from the setup-sheet CSV when there is one; its position is a guess from the toolpath until the Fusion setup supplies it.</p>
@@ -204,6 +195,11 @@
     <div class="speed">
       <label class="stepToggle" title="Pause at the start of each operation, and the moment cutter comp (G41/G42) turns on">
         <input id="stepMode" type="checkbox"> Step
+      </label>
+      <label class="detail" title="How fine the stock is simulated and drawn. Fine and Ultra show small holes and thin walls more accurately but take longer to prepare, especially on a Chromebook.">
+        <span>Detail</span>
+        <input id="detailSlider" type="range" min="0" max="3" step="1" value="1" aria-label="Detail: Fast, Balanced, Fine, Ultra">
+        <b id="detailTxt">Balanced</b>
       </label>
       <label for="speedSel">Speed</label>
       <select id="speedSel" class="sel">
